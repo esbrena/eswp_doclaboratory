@@ -11,11 +11,17 @@ class Permission_Manager
     /**
      * @var Permission_Repository
      */
-    private $repository;
+    private $folder_repository;
 
-    public function __construct(Permission_Repository $repository)
+    /**
+     * @var File_Permission_Repository
+     */
+    private $file_repository;
+
+    public function __construct(Permission_Repository $folder_repository, File_Permission_Repository $file_repository)
     {
-        $this->repository = $repository;
+        $this->folder_repository = $folder_repository;
+        $this->file_repository = $file_repository;
     }
 
     /**
@@ -60,7 +66,7 @@ class Permission_Manager
     }
 
     /**
-     * Comprueba acceso a carpeta concreta o a cualquier carpeta.
+     * Comprueba acceso a carpeta concreta o a cualquier carpeta/archivo.
      *
      * @param int      $user_id   Usuario.
      * @param int|null $folder_id Carpeta opcional.
@@ -79,14 +85,36 @@ class Permission_Manager
         }
 
         if ($folder_id === null) {
-            return $this->repository->user_has_any_valid_permission($user_id);
+            return $this->folder_repository->user_has_any_valid_permission($user_id)
+                || $this->file_repository->user_has_any_valid_permission($user_id);
         }
 
-        return $this->has_capability_for_folder($user_id, (int) $folder_id, 'can_read');
+        return $this->user_can_view_folder($user_id, (int) $folder_id);
     }
 
     /**
-     * Verifica permiso de descarga.
+     * Determina si un usuario puede ver contenido de carpeta.
+     *
+     * @param int $user_id   Usuario.
+     * @param int $folder_id Carpeta.
+     *
+     * @return bool
+     */
+    public function user_can_view_folder($user_id, $folder_id)
+    {
+        if ($this->is_manager_user($user_id)) {
+            return true;
+        }
+
+        if ($this->has_capability_for_folder((int) $user_id, (int) $folder_id, 'can_read')) {
+            return true;
+        }
+
+        return $this->user_has_any_readable_file_in_folder((int) $user_id, (int) $folder_id);
+    }
+
+    /**
+     * Verifica permiso de descarga por carpeta.
      *
      * @param int $user_id   Usuario.
      * @param int $folder_id Carpeta.
@@ -99,7 +127,7 @@ class Permission_Manager
     }
 
     /**
-     * Verifica permiso de edición de Excel.
+     * Verifica permiso de edición de Excel por carpeta.
      *
      * @param int $user_id   Usuario.
      * @param int $folder_id Carpeta.
@@ -112,22 +140,36 @@ class Permission_Manager
     }
 
     /**
-     * Valida si usuario puede operar sobre un archivo.
+     * Valida permisos efectivos sobre archivo (archivo directo o carpeta).
      *
      * @param int    $user_id    Usuario.
-     * @param int    $file_id    Adjuntos.
-     * @param string $capability Campo capability.
+     * @param int    $file_id    Archivo adjunto.
+     * @param string $capability Capability.
      *
      * @return bool
      */
     public function user_can_access_file($user_id, $file_id, $capability = 'can_read')
     {
+        $user_id = (int) $user_id;
+        $file_id = (int) $file_id;
+        if ($user_id <= 0 || $file_id <= 0) {
+            return false;
+        }
+
+        if ($this->is_manager_user($user_id)) {
+            return true;
+        }
+
+        if ($this->has_capability_for_file($user_id, $file_id, $capability)) {
+            return true;
+        }
+
         $folder_id = $this->get_folder_id_from_file($file_id);
         if ($folder_id <= 0) {
             return false;
         }
 
-        return $this->has_capability_for_folder((int) $user_id, $folder_id, $capability);
+        return $this->has_capability_for_folder($user_id, $folder_id, $capability);
     }
 
     /**
@@ -170,7 +212,7 @@ class Permission_Manager
             );
         }
 
-        $permissions = $this->repository->get_user_permissions($user_id, true);
+        $permissions = $this->folder_repository->get_user_permissions($user_id, true);
         $folder_ids = array();
         foreach ($permissions as $permission) {
             if (! empty($permission->{$capability}) && ! empty($permission->can_read)) {
@@ -178,7 +220,17 @@ class Permission_Manager
             }
         }
 
-        $folder_ids = array_values(array_unique($folder_ids));
+        $file_ids = $this->file_repository->get_valid_file_ids_for_user($user_id, $capability);
+        if (! empty($file_ids)) {
+            foreach ($file_ids as $file_id) {
+                $folder_id = $this->get_folder_id_from_file((int) $file_id);
+                if ($folder_id > 0) {
+                    $folder_ids[] = $folder_id;
+                }
+            }
+        }
+
+        $folder_ids = array_values(array_unique(array_map('intval', $folder_ids)));
         if (empty($folder_ids)) {
             return array();
         }
@@ -187,7 +239,6 @@ class Permission_Manager
             return $folder_ids;
         }
 
-        // Hereda permisos a descendientes para navegación opcional.
         $inherited = $folder_ids;
         foreach ($folder_ids as $folder_id) {
             $children = get_posts(
@@ -206,6 +257,66 @@ class Permission_Manager
         }
 
         return array_values(array_unique($inherited));
+    }
+
+    /**
+     * Devuelve IDs de archivos accesibles para un usuario.
+     *
+     * @param int    $user_id    Usuario.
+     * @param string $capability Capability requerida.
+     *
+     * @return array
+     */
+    public function get_accessible_file_ids($user_id, $capability = 'can_read')
+    {
+        $user_id = (int) $user_id;
+        if ($user_id <= 0) {
+            return array();
+        }
+
+        if ($this->is_manager_user($user_id)) {
+            return get_posts(
+                array(
+                    'post_type'      => 'attachment',
+                    'post_status'    => array('inherit', 'private'),
+                    'posts_per_page' => -1,
+                    'fields'         => 'ids',
+                    'meta_query'     => array(
+                        array(
+                            'key'     => 'shared_folder_id',
+                            'compare' => 'EXISTS',
+                        ),
+                    ),
+                )
+            );
+        }
+
+        $file_ids = $this->file_repository->get_valid_file_ids_for_user($user_id, $capability);
+
+        $folder_ids = $this->get_accessible_folder_ids($user_id, $capability);
+        if (! empty($folder_ids)) {
+            $folder_file_ids = get_posts(
+                array(
+                    'post_type'      => 'attachment',
+                    'post_status'    => array('inherit', 'private'),
+                    'posts_per_page' => -1,
+                    'fields'         => 'ids',
+                    'meta_query'     => array(
+                        array(
+                            'key'     => 'shared_folder_id',
+                            'value'   => $folder_ids,
+                            'compare' => 'IN',
+                        ),
+                    ),
+                )
+            );
+
+            if (! empty($folder_file_ids)) {
+                $file_ids = array_merge($file_ids, array_map('intval', $folder_file_ids));
+            }
+        }
+
+        return array_values(array_unique(array_map('intval', $file_ids)));
     }
 
     /**
@@ -296,7 +407,7 @@ class Permission_Manager
                 continue;
             }
 
-            if (! $this->is_manager_user($user_id) && ! $this->user_has_access($user_id, $item_id) && $item_id !== $folder_id) {
+            if (! $this->is_manager_user($user_id) && ! $this->user_can_view_folder($user_id, $item_id) && $item_id !== $folder_id) {
                 continue;
             }
 
@@ -338,7 +449,8 @@ class Permission_Manager
             return '<p>' . esc_html__('Usuario no encontrado.', 'shared-docs-manager') . '</p>';
         }
 
-        $permissions = $this->repository->get_user_permissions($user_id, false);
+        $folder_permissions = $this->folder_repository->get_user_permissions($user_id, false);
+        $file_permissions = $this->file_repository->get_user_permissions($user_id, false);
         $is_manager = $this->is_manager_user($user_id);
         $can_edit_links = $this->is_manager_user(get_current_user_id());
 
@@ -352,64 +464,135 @@ class Permission_Manager
                 </p>
             <?php endif; ?>
 
-            <?php if (empty($permissions)) : ?>
-                <p><?php esc_html_e('No hay permisos específicos asignados.', 'shared-docs-manager'); ?></p>
+            <?php if (empty($folder_permissions) && empty($file_permissions)) : ?>
+                <p><?php esc_html_e('No hay permisos específicos asignados en carpetas ni archivos.', 'shared-docs-manager'); ?></p>
             <?php else : ?>
-                <table class="widefat striped">
-                    <thead>
-                    <tr>
-                        <th><?php esc_html_e('Carpeta', 'shared-docs-manager'); ?></th>
-                        <th><?php esc_html_e('Lectura', 'shared-docs-manager'); ?></th>
-                        <th><?php esc_html_e('Descarga', 'shared-docs-manager'); ?></th>
-                        <th><?php esc_html_e('Edición Excel', 'shared-docs-manager'); ?></th>
-                        <th><?php esc_html_e('Expira', 'shared-docs-manager'); ?></th>
-                        <th><?php esc_html_e('Editar', 'shared-docs-manager'); ?></th>
-                    </tr>
-                    </thead>
-                    <tbody>
-                    <?php foreach ($permissions as $permission) : ?>
-                        <?php
-                        $folder_title = get_the_title((int) $permission->folder_id);
-                        $folder_title = $folder_title ? $folder_title : __('(Carpeta eliminada)', 'shared-docs-manager');
-                        $is_expired = ! empty($permission->expires_at) && strtotime($permission->expires_at) < current_time('timestamp');
-                        $expires_label = empty($permission->expires_at)
-                            ? __('Sin límite', 'shared-docs-manager')
-                            : wp_date(
-                                get_option('date_format') . ' ' . get_option('time_format'),
-                                strtotime($permission->expires_at)
-                            );
-                        $edit_url = add_query_arg(
-                            array(
-                                'page'          => 'shared-docs',
-                                'action'        => 'edit_permission',
-                                'permission_id' => (int) $permission->id,
-                                'user_id'       => $user_id,
-                            ),
-                            admin_url('admin.php')
-                        );
-                        ?>
+                <h4><?php esc_html_e('Permisos por carpeta', 'shared-docs-manager'); ?></h4>
+                <?php if (empty($folder_permissions)) : ?>
+                    <p><?php esc_html_e('No hay permisos directos en carpetas.', 'shared-docs-manager'); ?></p>
+                <?php else : ?>
+                    <table class="widefat striped">
+                        <thead>
                         <tr>
-                            <td>
-                                <?php echo esc_html($folder_title); ?>
-                                <?php if ($is_expired) : ?>
-                                    <span class="shared-docs-badge shared-docs-badge-danger"><?php esc_html_e('Expirado', 'shared-docs-manager'); ?></span>
-                                <?php endif; ?>
-                            </td>
-                            <td><?php echo ! empty($permission->can_read) ? '✔' : '—'; ?></td>
-                            <td><?php echo ! empty($permission->can_download) ? '✔' : '—'; ?></td>
-                            <td><?php echo ! empty($permission->can_edit_excel) ? '✔' : '—'; ?></td>
-                            <td><?php echo esc_html($expires_label); ?></td>
-                            <td>
-                                <?php if ($can_edit_links) : ?>
-                                    <a href="<?php echo esc_url($edit_url); ?>"><?php esc_html_e('Editar permisos', 'shared-docs-manager'); ?></a>
-                                <?php else : ?>
-                                    —
-                                <?php endif; ?>
-                            </td>
+                            <th><?php esc_html_e('Carpeta', 'shared-docs-manager'); ?></th>
+                            <th><?php esc_html_e('Lectura', 'shared-docs-manager'); ?></th>
+                            <th><?php esc_html_e('Descarga', 'shared-docs-manager'); ?></th>
+                            <th><?php esc_html_e('Edición Excel', 'shared-docs-manager'); ?></th>
+                            <th><?php esc_html_e('Expira', 'shared-docs-manager'); ?></th>
+                            <th><?php esc_html_e('Editar', 'shared-docs-manager'); ?></th>
                         </tr>
-                    <?php endforeach; ?>
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody>
+                        <?php foreach ($folder_permissions as $permission) : ?>
+                            <?php
+                            $folder_title = get_the_title((int) $permission->folder_id);
+                            $folder_title = $folder_title ? $folder_title : __('(Carpeta eliminada)', 'shared-docs-manager');
+                            $is_expired = ! empty($permission->expires_at) && strtotime($permission->expires_at) < current_time('timestamp');
+                            $expires_label = empty($permission->expires_at)
+                                ? __('Sin límite', 'shared-docs-manager')
+                                : wp_date(
+                                    get_option('date_format') . ' ' . get_option('time_format'),
+                                    strtotime($permission->expires_at)
+                                );
+                            $edit_url = add_query_arg(
+                                array(
+                                    'page'          => 'shared-docs',
+                                    'action'        => 'edit_permission',
+                                    'permission_id' => (int) $permission->id,
+                                    'user_id'       => $user_id,
+                                ),
+                                admin_url('admin.php')
+                            );
+                            ?>
+                            <tr>
+                                <td>
+                                    <?php echo esc_html($folder_title); ?>
+                                    <?php if ($is_expired) : ?>
+                                        <span class="shared-docs-badge shared-docs-badge-danger"><?php esc_html_e('Expirado', 'shared-docs-manager'); ?></span>
+                                    <?php endif; ?>
+                                </td>
+                                <td><?php echo ! empty($permission->can_read) ? '✔' : '—'; ?></td>
+                                <td><?php echo ! empty($permission->can_download) ? '✔' : '—'; ?></td>
+                                <td><?php echo ! empty($permission->can_edit_excel) ? '✔' : '—'; ?></td>
+                                <td><?php echo esc_html($expires_label); ?></td>
+                                <td>
+                                    <?php if ($can_edit_links) : ?>
+                                        <a href="<?php echo esc_url($edit_url); ?>"><?php esc_html_e('Editar permisos', 'shared-docs-manager'); ?></a>
+                                    <?php else : ?>
+                                        —
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                <?php endif; ?>
+
+                <h4 style="margin-top:16px;"><?php esc_html_e('Permisos por archivo', 'shared-docs-manager'); ?></h4>
+                <?php if (empty($file_permissions)) : ?>
+                    <p><?php esc_html_e('No hay permisos directos asignados a archivos.', 'shared-docs-manager'); ?></p>
+                <?php else : ?>
+                    <table class="widefat striped">
+                        <thead>
+                        <tr>
+                            <th><?php esc_html_e('Archivo', 'shared-docs-manager'); ?></th>
+                            <th><?php esc_html_e('Carpeta', 'shared-docs-manager'); ?></th>
+                            <th><?php esc_html_e('Lectura', 'shared-docs-manager'); ?></th>
+                            <th><?php esc_html_e('Descarga', 'shared-docs-manager'); ?></th>
+                            <th><?php esc_html_e('Edición Excel', 'shared-docs-manager'); ?></th>
+                            <th><?php esc_html_e('Expira', 'shared-docs-manager'); ?></th>
+                            <th><?php esc_html_e('Editar', 'shared-docs-manager'); ?></th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <?php foreach ($file_permissions as $permission) : ?>
+                            <?php
+                            $file_title = get_the_title((int) $permission->file_id);
+                            $file_title = $file_title ? $file_title : __('(Archivo eliminado)', 'shared-docs-manager');
+                            $folder_id = $this->get_folder_id_from_file((int) $permission->file_id);
+                            $folder_title = $folder_id > 0 ? get_the_title($folder_id) : '';
+                            $folder_title = $folder_title ? $folder_title : __('(Sin carpeta)', 'shared-docs-manager');
+                            $is_expired = ! empty($permission->expires_at) && strtotime($permission->expires_at) < current_time('timestamp');
+                            $expires_label = empty($permission->expires_at)
+                                ? __('Sin límite', 'shared-docs-manager')
+                                : wp_date(
+                                    get_option('date_format') . ' ' . get_option('time_format'),
+                                    strtotime($permission->expires_at)
+                                );
+                            $edit_url = add_query_arg(
+                                array(
+                                    'page'          => 'shared-docs',
+                                    'action'        => 'edit_file_permission',
+                                    'permission_id' => (int) $permission->id,
+                                    'user_id'       => $user_id,
+                                ),
+                                admin_url('admin.php')
+                            );
+                            ?>
+                            <tr>
+                                <td>
+                                    <?php echo esc_html($file_title); ?>
+                                    <?php if ($is_expired) : ?>
+                                        <span class="shared-docs-badge shared-docs-badge-danger"><?php esc_html_e('Expirado', 'shared-docs-manager'); ?></span>
+                                    <?php endif; ?>
+                                </td>
+                                <td><?php echo esc_html($folder_title); ?></td>
+                                <td><?php echo ! empty($permission->can_read) ? '✔' : '—'; ?></td>
+                                <td><?php echo ! empty($permission->can_download) ? '✔' : '—'; ?></td>
+                                <td><?php echo ! empty($permission->can_edit_excel) ? '✔' : '—'; ?></td>
+                                <td><?php echo esc_html($expires_label); ?></td>
+                                <td>
+                                    <?php if ($can_edit_links) : ?>
+                                        <a href="<?php echo esc_url($edit_url); ?>"><?php esc_html_e('Editar permisos', 'shared-docs-manager'); ?></a>
+                                    <?php else : ?>
+                                        —
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                <?php endif; ?>
             <?php endif; ?>
         </div>
         <?php
@@ -450,17 +633,79 @@ class Permission_Manager
         }
 
         foreach ($folder_chain as $check_folder_id) {
-            $permission = $this->repository->get_permission_by_user_folder($user_id, (int) $check_folder_id, true);
+            $permission = $this->folder_repository->get_permission_by_user_folder($user_id, (int) $check_folder_id, true);
             if (! $permission) {
                 continue;
             }
 
-            // Si no hay lectura no se consideran permisos derivados para ese registro.
             if (empty($permission->can_read)) {
                 continue;
             }
 
             if (! empty($permission->{$capability})) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Comprueba capability para archivo.
+     *
+     * @param int    $user_id    Usuario.
+     * @param int    $file_id    Archivo.
+     * @param string $capability Capability.
+     *
+     * @return bool
+     */
+    private function has_capability_for_file($user_id, $file_id, $capability)
+    {
+        $user_id = (int) $user_id;
+        $file_id = (int) $file_id;
+        if ($user_id <= 0 || $file_id <= 0) {
+            return false;
+        }
+
+        $supported = array('can_read', 'can_download', 'can_edit_excel');
+        if (! in_array($capability, $supported, true)) {
+            $capability = 'can_read';
+        }
+
+        $permission = $this->file_repository->get_permission_by_user_file($user_id, $file_id, true);
+        if (! $permission) {
+            return false;
+        }
+
+        if (empty($permission->can_read)) {
+            return false;
+        }
+
+        return ! empty($permission->{$capability});
+    }
+
+    /**
+     * Verifica si hay archivos directos legibles en carpeta.
+     *
+     * @param int $user_id   Usuario.
+     * @param int $folder_id Carpeta.
+     *
+     * @return bool
+     */
+    private function user_has_any_readable_file_in_folder($user_id, $folder_id)
+    {
+        $folder_id = (int) $folder_id;
+        if ($folder_id <= 0) {
+            return false;
+        }
+
+        $file_ids = $this->file_repository->get_valid_file_ids_for_user((int) $user_id, 'can_read');
+        if (empty($file_ids)) {
+            return false;
+        }
+
+        foreach ($file_ids as $file_id) {
+            if ($this->get_folder_id_from_file((int) $file_id) === $folder_id) {
                 return true;
             }
         }

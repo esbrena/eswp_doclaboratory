@@ -9,14 +9,27 @@ Características principales
 - CPT jerárquico `shared_folder` para carpetas.
 - Archivos como `attachment` asociados por meta `shared_folder_id`.
 - Tabla personalizada de permisos: `wp_shared_folder_permissions`.
+- Tabla personalizada adicional de permisos por archivo: `wp_shared_file_permissions`.
 - Tabla de actividad: `wp_shared_activity_log`.
 - Roles gestores globales por defecto: `admin`, `admin_lab` (y `administrator` si existe).
+- Permisos por usuario/carpeta:
+- Permisos por usuario/archivo:
+  - Lectura (`can_read`)
+  - Descarga (`can_download`)
+  - Edición Excel (`can_edit_excel`)
+  - Expiración opcional (`expires_at`)
 - Permisos por usuario/carpeta:
   - Lectura (`can_read`)
   - Descarga (`can_download`)
   - Edición Excel (`can_edit_excel`)
   - Expiración opcional (`expires_at`)
 - Revocación manual y limpieza automática diaria de permisos expirados (WP-Cron).
+- Asignación masiva de permisos (múltiples usuarios x múltiples carpetas/archivos).
+- Vista administrativa de:
+  - carpetas creadas,
+  - archivos subidos,
+  - permisos por carpeta,
+  - permisos por archivo.
 - Shortcode frontend:
   - `[shared_document_manager]`
   - UI responsive estilo explorador con breadcrumb y navegación dinámica.

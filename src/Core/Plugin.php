@@ -7,6 +7,7 @@ use SharedDocsManager\API\Rest_Controller;
 use SharedDocsManager\Front\Front_Controller;
 use SharedDocsManager\Helpers\Activity_Logger;
 use SharedDocsManager\Helpers\File_Helper;
+use SharedDocsManager\Permissions\File_Permission_Repository;
 use SharedDocsManager\Permissions\Permission_Manager;
 use SharedDocsManager\Permissions\Permission_Repository;
 
@@ -30,6 +31,11 @@ class Plugin
      * @var Permission_Repository
      */
     private $permission_repository;
+
+    /**
+     * @var File_Permission_Repository
+     */
+    private $file_permission_repository;
 
     /**
      * @var Permission_Manager
@@ -98,8 +104,11 @@ class Plugin
 
         load_plugin_textdomain('shared-docs-manager', false, dirname(plugin_basename(SHARED_DOCS_FILE)) . '/languages');
 
+        $this->maybe_upgrade_database();
+
         $this->permission_repository = new Permission_Repository();
-        $this->permission_manager = new Permission_Manager($this->permission_repository);
+        $this->file_permission_repository = new File_Permission_Repository();
+        $this->permission_manager = new Permission_Manager($this->permission_repository, $this->file_permission_repository);
         $this->activity_logger = new Activity_Logger();
         $this->file_helper = new File_Helper($this->activity_logger);
 
@@ -107,6 +116,7 @@ class Plugin
         $this->admin_controller = new Admin_Controller(
             $this->permission_manager,
             $this->permission_repository,
+            $this->file_permission_repository,
             $this->file_helper
         );
         $this->front_controller = new Front_Controller($this->permission_manager);
@@ -159,5 +169,22 @@ class Plugin
     public function cleanup_expired_permissions()
     {
         $this->permission_repository->delete_expired_permissions();
+        $this->file_permission_repository->delete_expired_permissions();
+    }
+
+    /**
+     * Ejecuta migraciones de esquema si procede.
+     *
+     * @return void
+     */
+    private function maybe_upgrade_database()
+    {
+        $current = get_option('shared_docs_db_version', '1.0.0');
+        if (version_compare($current, Activator::DB_VERSION, '>=')) {
+            return;
+        }
+
+        Activator::maybe_create_tables();
+        update_option('shared_docs_db_version', Activator::DB_VERSION);
     }
 }

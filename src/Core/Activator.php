@@ -11,13 +11,18 @@ if (! defined('ABSPATH')) {
 class Activator
 {
     /**
+     * Versión de esquema DB.
+     */
+    const DB_VERSION = '1.1.0';
+
+    /**
      * Ejecuta lógica de activación.
      *
      * @return void
      */
     public static function activate()
     {
-        self::create_tables();
+        self::maybe_create_tables();
         self::grant_management_capability();
 
         Post_Types::register();
@@ -35,15 +40,17 @@ class Activator
             add_option('shared_docs_enable_inheritance', '0');
         }
 
+        update_option('shared_docs_db_version', self::DB_VERSION);
+
         flush_rewrite_rules();
     }
 
     /**
-     * Crea tablas personalizadas.
+     * Crea/migra tablas personalizadas.
      *
      * @return void
      */
-    private static function create_tables()
+    public static function maybe_create_tables()
     {
         global $wpdb;
 
@@ -51,6 +58,7 @@ class Activator
 
         $charset_collate = $wpdb->get_charset_collate();
         $permissions_table = $wpdb->prefix . 'shared_folder_permissions';
+        $file_permissions_table = $wpdb->prefix . 'shared_file_permissions';
         $activity_table = $wpdb->prefix . 'shared_activity_log';
 
         $permissions_sql = "CREATE TABLE {$permissions_table} (
@@ -84,7 +92,25 @@ class Activator
             KEY created_idx (created_at)
         ) {$charset_collate};";
 
+        $file_permissions_sql = "CREATE TABLE {$file_permissions_table} (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            user_id BIGINT(20) UNSIGNED NOT NULL,
+            file_id BIGINT(20) UNSIGNED NOT NULL,
+            can_read TINYINT(1) NOT NULL DEFAULT 1,
+            can_download TINYINT(1) NOT NULL DEFAULT 1,
+            can_edit_excel TINYINT(1) NOT NULL DEFAULT 0,
+            expires_at DATETIME NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY user_file_unique (user_id, file_id),
+            KEY user_idx (user_id),
+            KEY file_idx (file_id),
+            KEY expires_idx (expires_at)
+        ) {$charset_collate};";
+
         dbDelta($permissions_sql);
+        dbDelta($file_permissions_sql);
         dbDelta($activity_sql);
     }
 

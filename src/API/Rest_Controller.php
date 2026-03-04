@@ -181,7 +181,7 @@ class Rest_Controller
         $folder_id = (int) $request->get_param('folder_id');
         $user_id = get_current_user_id();
 
-        if (! $this->permission_manager->user_has_access($user_id, $folder_id)) {
+        if (! $this->permission_manager->user_can_view_folder($user_id, $folder_id)) {
             return new WP_Error(
                 'shared_docs_forbidden',
                 __('No tienes acceso a esta carpeta.', 'shared-docs-manager'),
@@ -206,19 +206,25 @@ class Rest_Controller
             )
         );
 
-        $can_download = $this->permission_manager->user_can_download($user_id, $folder_id);
-        $can_edit_excel = $this->permission_manager->user_can_edit_excel($user_id, $folder_id);
         $response = array();
 
         foreach ($files as $file) {
+            $file_id = (int) $file->ID;
+            $can_read = $this->permission_manager->user_can_access_file($user_id, $file_id, 'can_read');
+            if (! $can_read) {
+                continue;
+            }
+
             $path = get_attached_file((int) $file->ID);
             $filename = $path ? basename($path) : $file->post_title;
             $mime_type = (string) get_post_mime_type((int) $file->ID);
             $is_excel = File_Helper::is_excel_file($filename, $mime_type);
             $size = ($path && file_exists($path)) ? (int) filesize($path) : 0;
+            $can_download = $this->permission_manager->user_can_access_file($user_id, $file_id, 'can_download');
+            $can_edit_excel = $this->permission_manager->user_can_access_file($user_id, $file_id, 'can_edit_excel');
 
             $response[] = array(
-                'id'             => (int) $file->ID,
+                'id'             => $file_id,
                 'title'          => $file->post_title,
                 'filename'       => $filename,
                 'mime_type'      => $mime_type,
@@ -245,7 +251,7 @@ class Rest_Controller
         $folder_id = (int) $request['id'];
         $user_id = get_current_user_id();
 
-        if (! $this->permission_manager->user_has_access($user_id, $folder_id)) {
+        if (! $this->permission_manager->user_can_view_folder($user_id, $folder_id)) {
             return new WP_Error(
                 'shared_docs_forbidden',
                 __('No tienes acceso a esta carpeta.', 'shared-docs-manager'),
