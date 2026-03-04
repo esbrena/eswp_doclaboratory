@@ -124,6 +124,23 @@
   font-weight: 500;
 }
 
+.shared-docs-tree__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #eef2ff;
+  color: #3730a3;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  margin-left: auto;
+}
+
+.shared-docs-tree__item input[type="checkbox"] {
+  margin: 0;
+}
+
 .shared-docs-tree__delete {
   color: #b91c1c;
   text-decoration: none;
@@ -138,6 +155,28 @@
   max-height: 70vh;
   overflow: auto;
   padding-right: 4px;
+}
+
+.shared-docs-tree-global-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  background: #f8fafc;
+  border: 1px solid #dbe3ee;
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 12px;
+}
+
+.shared-docs-tree-global-actions__info {
+  font-weight: 600;
+}
+
+.shared-docs-tree-global-actions__buttons {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 .shared-docs-accordion {
@@ -201,6 +240,10 @@
   padding: 14px;
 }
 
+.shared-docs-modal-admin__dialog--wide {
+  width: min(920px, 95vw);
+}
+
 .shared-docs-modal-admin__header {
   display: flex;
   justify-content: space-between;
@@ -217,6 +260,25 @@
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.shared-docs-access-current {
+  max-height: 34vh;
+  overflow: auto;
+}
+
+.shared-docs-access-add {
+  margin-top: 12px;
+}
+
+.shared-docs-access-user-details {
+  background: #f8fafc;
+  border-left: 3px solid #cbd5e1;
+}
+
+.shared-docs-resource-table td:first-child {
+  width: 60px;
+  text-align: center;
 }
 
 .shared-docs-user-checklist {
