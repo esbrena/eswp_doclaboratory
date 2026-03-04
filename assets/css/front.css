@@ -1,0 +1,276 @@
+.shared-docs-manager {
+  --shared-docs-bg: #f8fafc;
+  --shared-docs-card: #ffffff;
+  --shared-docs-border: #dbe3ee;
+  --shared-docs-primary: #2563eb;
+  --shared-docs-text: #1f2937;
+  --shared-docs-muted: #64748b;
+  --shared-docs-shadow: 0 12px 24px rgba(15, 23, 42, 0.06);
+  background: var(--shared-docs-bg);
+  border: 1px solid var(--shared-docs-border);
+  border-radius: 16px;
+  padding: 18px;
+  color: var(--shared-docs-text);
+}
+
+.shared-docs-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.shared-docs-toolbar-title h3 {
+  margin: 0 0 4px;
+  font-size: 1.3rem;
+}
+
+.shared-docs-toolbar-title p {
+  margin: 0;
+  color: var(--shared-docs-muted);
+}
+
+.shared-docs-breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 16px;
+  min-height: 28px;
+}
+
+.shared-docs-breadcrumb__item {
+  border: none;
+  background: transparent;
+  color: #334155;
+  font-size: 0.92rem;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.shared-docs-breadcrumb__item:disabled {
+  color: #0f172a;
+  font-weight: 600;
+  cursor: default;
+}
+
+.shared-docs-breadcrumb__sep {
+  color: #94a3b8;
+}
+
+.shared-docs-content {
+  display: grid;
+  gap: 14px;
+}
+
+.shared-docs-section h4 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+.shared-docs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.shared-docs-card {
+  background: var(--shared-docs-card);
+  border: 1px solid var(--shared-docs-border);
+  border-radius: 12px;
+  padding: 12px;
+  box-shadow: var(--shared-docs-shadow);
+}
+
+.shared-docs-card-folder {
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.shared-docs-card-folder:hover,
+.shared-docs-card-folder:focus {
+  border-color: #93c5fd;
+  transform: translateY(-1px);
+}
+
+.shared-docs-card-title {
+  margin: 6px 0 4px;
+  font-size: 0.98rem;
+  word-break: break-word;
+}
+
+.shared-docs-card-meta {
+  margin: 0;
+  color: var(--shared-docs-muted);
+  font-size: 0.82rem;
+}
+
+.shared-docs-icon {
+  font-size: 1.35rem;
+}
+
+.shared-docs-card-actions {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.shared-docs-btn {
+  border: 1px solid var(--shared-docs-border);
+  border-radius: 9px;
+  padding: 7px 11px;
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+
+.shared-docs-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.shared-docs-btn-primary {
+  border-color: var(--shared-docs-primary);
+  background: var(--shared-docs-primary);
+  color: #fff;
+}
+
+.shared-docs-btn-secondary {
+  background: #fff;
+}
+
+.shared-docs-empty {
+  background: #fff;
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
+  color: #64748b;
+  padding: 14px;
+}
+
+.shared-docs-message {
+  border: 1px solid #dbe3ee;
+  border-radius: 12px;
+  padding: 12px;
+  background: #f8fafc;
+}
+
+.shared-docs-modal[hidden] {
+  display: none;
+}
+
+.shared-docs-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+}
+
+.shared-docs-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.65);
+}
+
+.shared-docs-modal__content {
+  position: relative;
+  z-index: 2;
+  background: #fff;
+  width: min(1100px, 95vw);
+  max-height: 88vh;
+  margin: 5vh auto;
+  border-radius: 14px;
+  border: 1px solid #dbe3ee;
+  display: flex;
+  flex-direction: column;
+}
+
+.shared-docs-modal__header,
+.shared-docs-modal__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.shared-docs-modal__footer {
+  border-bottom: none;
+  border-top: 1px solid #e2e8f0;
+  justify-content: flex-end;
+}
+
+.shared-docs-modal__body {
+  padding: 14px;
+  overflow: auto;
+}
+
+.shared-docs-modal__close {
+  border: none;
+  background: transparent;
+  font-size: 1.3rem;
+  cursor: pointer;
+}
+
+.shared-docs-excel-table-wrap {
+  overflow: auto;
+  max-height: 58vh;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+}
+
+.shared-docs-excel-table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.shared-docs-excel-table td {
+  border: 1px solid #e2e8f0;
+  padding: 6px 8px;
+  min-width: 70px;
+  font-size: 0.85rem;
+}
+
+.shared-docs-excel-table td:focus {
+  outline: 2px solid #93c5fd;
+  outline-offset: -1px;
+}
+
+.shared-docs-toast {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  background: #0f172a;
+  color: #fff;
+  padding: 10px 12px;
+  border-radius: 8px;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: all 0.2s ease;
+  z-index: 10000;
+  font-size: 0.9rem;
+}
+
+.shared-docs-toast.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.shared-docs-toast-success {
+  background: #166534;
+}
+
+.shared-docs-toast-error {
+  background: #991b1b;
+}
+
+@media (max-width: 768px) {
+  .shared-docs-toolbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .shared-docs-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,1 +1,53 @@
+Shared Document Manager (WordPress Plugin)
+=========================================
 
+Plugin modular para gestionar documentos compartidos en carpetas/subcarpetas con permisos por usuario individual.
+
+Características principales
+---------------------------
+
+- CPT jerárquico `shared_folder` para carpetas.
+- Archivos como `attachment` asociados por meta `shared_folder_id`.
+- Tabla personalizada de permisos: `wp_shared_folder_permissions`.
+- Tabla de actividad: `wp_shared_activity_log`.
+- Roles gestores globales por defecto: `admin`, `admin_lab` (y `administrator` si existe).
+- Permisos por usuario/carpeta:
+  - Lectura (`can_read`)
+  - Descarga (`can_download`)
+  - Edición Excel (`can_edit_excel`)
+  - Expiración opcional (`expires_at`)
+- Revocación manual y limpieza automática diaria de permisos expirados (WP-Cron).
+- Shortcode frontend:
+  - `[shared_document_manager]`
+  - UI responsive estilo explorador con breadcrumb y navegación dinámica.
+- Endpoints REST protegidos:
+  - `GET /wp-json/shared-docs/v1/folders`
+  - `GET /wp-json/shared-docs/v1/files?folder_id=ID`
+  - `GET /wp-json/shared-docs/v1/folder/ID/breadcrumb`
+  - `GET /wp-json/shared-docs/v1/download/ID`
+  - `POST /wp-json/shared-docs/v1/excel/save`
+- Edición de Excel en navegador con SheetJS.
+
+Funciones públicas
+------------------
+
+```php
+shared_user_has_access( int $user_id, ?int $folder_id = null ): bool
+shared_get_user_permissions_html( int $user_id ): string
+```
+
+Uso rápido
+----------
+
+1. Activa el plugin en WordPress.
+2. En el admin, abre **Shared Docs** para:
+   - crear carpetas/subcarpetas,
+   - subir archivos,
+   - asignar/editar/revocar permisos por usuario.
+3. Inserta el shortcode `[shared_document_manager]` en la página deseada.
+
+Notas
+-----
+
+- Los archivos se suben al subdirectorio protegido `uploads/shared-docs-protected`.
+- El acceso se valida por backend (REST) antes de listar, descargar o editar.
