@@ -116,7 +116,9 @@
 }
 
 .shared-docs-tree__icon {
-  font-size: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .shared-docs-tree__label {
@@ -177,6 +179,11 @@
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-wrap: wrap;
+}
+
+.shared-docs-tree-global-actions__buttons[hidden] {
+  display: none !important;
 }
 
 .shared-docs-accordion {
@@ -281,6 +288,14 @@
   text-align: center;
 }
 
+.shared-docs-user-selector {
+  margin-top: 8px;
+}
+
+.shared-docs-user-selector [data-user-search] {
+  margin-bottom: 8px;
+}
+
 .shared-docs-user-checklist {
   display: grid;
   gap: 6px;
@@ -298,6 +313,40 @@
   gap: 8px;
   margin: 0 !important;
   font-weight: 400 !important;
+}
+
+.shared-docs-user-checklist__item[hidden] {
+  display: none !important;
+}
+
+.shared-docs-type-icon {
+  display: inline-flex;
+  width: 40px;
+  height: 26px;
+}
+
+.shared-docs-type-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.shared-docs-type-icon rect {
+  fill: #ffffff;
+  stroke: #94a3b8;
+  stroke-width: 1.2;
+}
+
+.shared-docs-type-icon--folder rect {
+  fill: #eaf1ff;
+  stroke: #3b82f6;
+}
+
+.shared-docs-type-icon text {
+  fill: #0f172a;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: Arial, sans-serif;
+  letter-spacing: 0.4px;
 }
 
 .shared-docs-switch-row {

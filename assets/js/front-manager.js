@@ -130,6 +130,70 @@
     return parts.pop().toLowerCase();
   };
 
+  const resolveFileIconCode = (name, mimeType, isExcel) => {
+    if (isExcel) {
+      return "XLS";
+    }
+
+    const ext = extensionFromName(name);
+    const map = {
+      pdf: "PDF",
+      xls: "XLS",
+      xlsx: "XLS",
+      xlsm: "XLS",
+      xlsb: "XLS",
+      ods: "XLS",
+      csv: "XLS",
+      ppt: "PPT",
+      pptx: "PPT",
+      odp: "PPT",
+      jpg: "JPG",
+      jpeg: "JPG",
+      png: "PNG",
+      gif: "GIF",
+      webp: "WEBP",
+      svg: "SVG",
+      doc: "DOC",
+      docx: "DOC",
+      odt: "DOC",
+      rtf: "DOC",
+      txt: "TXT",
+      zip: "ZIP",
+      rar: "ZIP",
+      "7z": "ZIP",
+    };
+
+    if (map[ext]) {
+      return map[ext];
+    }
+
+    if (String(mimeType || "").indexOf("image/") === 0) {
+      return "IMG";
+    }
+
+    if (ext) {
+      return ext.toUpperCase().slice(0, 4);
+    }
+
+    return "FILE";
+  };
+
+  const createTypeIcon = (code, kind = "file") => {
+    const safeCode =
+      String(code || "FILE")
+        .toUpperCase()
+        .replace(/[^A-Z0-9]/g, "")
+        .slice(0, 4) || "FILE";
+    const wrapper = document.createElement("span");
+    wrapper.className = `shared-docs-icon shared-docs-type-icon ${
+      kind === "folder" ? "shared-docs-type-icon--folder" : "shared-docs-type-icon--file"
+    }`;
+    wrapper.innerHTML = `<svg viewBox="0 0 56 36" aria-hidden="true" focusable="false"><rect x="1" y="1" width="54" height="34" rx="6" ry="6"></rect><text x="28" y="23" text-anchor="middle">${String(
+      safeCode
+    )}</text></svg>`;
+    return wrapper;
+  };
+
   const resolveBookType = (name) => {
     const ext = extensionFromName(name);
     if (["xls", "xlsx", "xlsm", "xlsb", "csv", "ods"].includes(ext)) {
@@ -173,9 +237,7 @@
       card.setAttribute("role", "button");
       card.tabIndex = 0;
 
-      const icon = document.createElement("span");
-      icon.className = "shared-docs-icon shared-docs-icon-folder";
-      icon.textContent = "📁";
+      const icon = createTypeIcon("DIR", "folder");
 
       const title = document.createElement("h5");
       title.className = "shared-docs-card-title";
@@ -335,9 +397,10 @@
       const card = document.createElement("article");
       card.className = "shared-docs-card shared-docs-card-file";
 
-      const icon = document.createElement("span");
-      icon.className = "shared-docs-icon shared-docs-icon-file";
-      icon.textContent = file.is_excel ? "📊" : "📄";
+      const icon = createTypeIcon(
+        resolveFileIconCode(file.filename || file.title, file.mime_type, file.is_excel),
+        "file"
+      );
 
       const title = document.createElement("h5");
       title.className = "shared-docs-card-title";
