@@ -1,6 +1,6 @@
 .shared-docs-admin-wrap .shared-docs-grid-admin {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: minmax(320px, 1fr) minmax(320px, 1fr);
   gap: 16px;
   margin-top: 14px;
 }
@@ -15,7 +15,10 @@
 .shared-docs-admin-wrap .shared-docs-card h2 {
   margin-top: 0;
 }
-
+.shared-label-edit-name-folder {
+  margin-top:8px;
+  margin-bottom:8px;
+}
 .shared-docs-admin-wrap .shared-docs-card-full {
   grid-column: 1 / -1;
   margin-top: 16px;
@@ -87,6 +90,7 @@
   list-style: none;
   margin: 0;
   padding-left: 18px;
+  padding-left: 8px;
 }
 
 .shared-docs-tree {
