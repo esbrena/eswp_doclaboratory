@@ -318,6 +318,33 @@ class File_Permission_Repository
     }
 
     /**
+     * Elimina permisos vinculados a varios archivos.
+     *
+     * @param array $file_ids IDs de archivo.
+     *
+     * @return int Cantidad eliminada.
+     */
+    public function delete_permissions_by_file_ids($file_ids)
+    {
+        global $wpdb;
+
+        $file_ids = array_values(array_unique(array_filter(array_map('intval', (array) $file_ids))));
+        if (empty($file_ids)) {
+            return 0;
+        }
+
+        $placeholders = implode(',', array_fill(0, count($file_ids), '%d'));
+        $sql = $wpdb->prepare(
+            "DELETE FROM {$this->table_name} WHERE file_id IN ({$placeholders})",
+            $file_ids
+        );
+
+        $wpdb->query($sql);
+
+        return (int) $wpdb->rows_affected;
+    }
+
+    /**
      * Limpia permisos expirados.
      *
      * @return int

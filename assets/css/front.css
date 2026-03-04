@@ -148,6 +148,10 @@
   padding: 14px;
 }
 
+.shared-docs-directory-empty {
+  margin-top: 6px;
+}
+
 .shared-docs-message {
   border: 1px solid #dbe3ee;
   border-radius: 12px;

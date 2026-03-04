@@ -62,6 +62,8 @@ class Admin_Controller
         add_action('admin_post_shared_docs_save_permission', array($this, 'handle_save_permission'));
         add_action('admin_post_shared_docs_save_file_permission', array($this, 'handle_save_file_permission'));
         add_action('admin_post_shared_docs_bulk_save_permissions', array($this, 'handle_bulk_save_permissions'));
+        add_action('admin_post_shared_docs_delete_folder', array($this, 'handle_delete_folder'));
+        add_action('admin_post_shared_docs_delete_file', array($this, 'handle_delete_file'));
         add_action('admin_post_shared_docs_delete_permission', array($this, 'handle_delete_permission'));
         add_action('admin_post_shared_docs_delete_file_permission', array($this, 'handle_delete_file_permission'));
         add_action('admin_post_shared_docs_save_settings', array($this, 'handle_save_settings'));
@@ -471,6 +473,7 @@ class Admin_Controller
                                     <th><?php esc_html_e('Padre', 'shared-docs-manager'); ?></th>
                                     <th><?php esc_html_e('Subcarpetas', 'shared-docs-manager'); ?></th>
                                     <th><?php esc_html_e('Archivos', 'shared-docs-manager'); ?></th>
+                                    <th><?php esc_html_e('Acciones', 'shared-docs-manager'); ?></th>
                                 </tr>
                                 </thead>
                                 <tbody>
@@ -479,12 +482,27 @@ class Admin_Controller
                                     $parent_title = (int) $folder->post_parent > 0 ? get_the_title((int) $folder->post_parent) : __('Raíz', 'shared-docs-manager');
                                     $children_count = isset($folder_children_count[(int) $folder->ID]) ? (int) $folder_children_count[(int) $folder->ID] : 0;
                                     $files_count = isset($folder_files_count[(int) $folder->ID]) ? (int) $folder_files_count[(int) $folder->ID] : 0;
+                                    $delete_folder_link = wp_nonce_url(
+                                        add_query_arg(
+                                            array(
+                                                'action'    => 'shared_docs_delete_folder',
+                                                'folder_id' => (int) $folder->ID,
+                                            ),
+                                            admin_url('admin-post.php')
+                                        ),
+                                        'shared_docs_delete_folder_' . (int) $folder->ID
+                                    );
                                     ?>
                                     <tr>
                                         <td><?php echo esc_html($folder->post_title); ?></td>
                                         <td><?php echo esc_html($parent_title); ?></td>
                                         <td><?php echo esc_html((string) $children_count); ?></td>
                                         <td><?php echo esc_html((string) $files_count); ?></td>
+                                        <td>
+                                            <a href="<?php echo esc_url($delete_folder_link); ?>" onclick="return confirm('<?php echo esc_js(__('¿Eliminar esta carpeta y todo su contenido?', 'shared-docs-manager')); ?>');">
+                                                <?php esc_html_e('Borrar', 'shared-docs-manager'); ?>
+                                            </a>
+                                        </td>
                                     </tr>
                                 <?php endforeach; ?>
                                 </tbody>
@@ -505,6 +523,7 @@ class Admin_Controller
                                     <th><?php esc_html_e('Peso', 'shared-docs-manager'); ?></th>
                                     <th><?php esc_html_e('Subido por', 'shared-docs-manager'); ?></th>
                                     <th><?php esc_html_e('Fecha', 'shared-docs-manager'); ?></th>
+                                    <th><?php esc_html_e('Acciones', 'shared-docs-manager'); ?></th>
                                 </tr>
                                 </thead>
                                 <tbody>
@@ -517,6 +536,16 @@ class Admin_Controller
                                     $size = ($path && file_exists($path)) ? (int) filesize($path) : 0;
                                     $uploader = get_userdata((int) $file->post_author);
                                     $uploader_name = $uploader ? $uploader->display_name : __('(Desconocido)', 'shared-docs-manager');
+                                    $delete_file_link = wp_nonce_url(
+                                        add_query_arg(
+                                            array(
+                                                'action'  => 'shared_docs_delete_file',
+                                                'file_id' => $file_id,
+                                            ),
+                                            admin_url('admin-post.php')
+                                        ),
+                                        'shared_docs_delete_file_' . $file_id
+                                    );
                                     ?>
                                     <tr>
                                         <td><?php echo esc_html($file->post_title); ?></td>
@@ -524,6 +553,11 @@ class Admin_Controller
                                         <td><?php echo esc_html($this->format_bytes($size)); ?></td>
                                         <td><?php echo esc_html($uploader_name); ?></td>
                                         <td><?php echo esc_html(wp_date(get_option('date_format') . ' ' . get_option('time_format'), strtotime($file->post_date_gmt . ' GMT'))); ?></td>
+                                        <td>
+                                            <a href="<?php echo esc_url($delete_file_link); ?>" onclick="return confirm('<?php echo esc_js(__('¿Eliminar este archivo?', 'shared-docs-manager')); ?>');">
+                                                <?php esc_html_e('Borrar', 'shared-docs-manager'); ?>
+                                            </a>
+                                        </td>
                                     </tr>
                                 <?php endforeach; ?>
                                 </tbody>
@@ -531,6 +565,18 @@ class Admin_Controller
                         <?php endif; ?>
                     </div>
                 </div>
+            </section>
+
+            <section class="shared-docs-card shared-docs-card-full">
+                <h2><?php esc_html_e('Árbol de carpetas y archivos', 'shared-docs-manager'); ?></h2>
+                <?php
+                $tree_html = $this->render_folder_tree_with_files($folders, $files);
+                if ($tree_html === '') :
+                    ?>
+                    <p><?php esc_html_e('No hay estructura de carpetas/archivos para mostrar.', 'shared-docs-manager'); ?></p>
+                <?php else : ?>
+                    <?php echo $tree_html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+                <?php endif; ?>
             </section>
 
             <section class="shared-docs-card shared-docs-card-full">
@@ -776,6 +822,98 @@ class Admin_Controller
         }
 
         $this->redirect_with_notice('upload_ok');
+    }
+
+    /**
+     * Handler: eliminar carpeta (con subcarpetas/archivos).
+     *
+     * @return void
+     */
+    public function handle_delete_folder()
+    {
+        $this->deny_if_not_manager();
+
+        $folder_id = isset($_GET['folder_id']) ? (int) $_GET['folder_id'] : 0;
+        if ($folder_id <= 0) {
+            $this->redirect_with_notice('folder_delete_invalid');
+        }
+
+        check_admin_referer('shared_docs_delete_folder_' . $folder_id);
+
+        $folder = get_post($folder_id);
+        if (! $folder || $folder->post_type !== 'shared_folder') {
+            $this->redirect_with_notice('folder_delete_invalid');
+        }
+
+        $folder_ids = $this->get_descendant_folder_ids($folder_id);
+        if (empty($folder_ids)) {
+            $folder_ids = array($folder_id);
+        }
+
+        $file_ids = get_posts(
+            array(
+                'post_type'      => 'attachment',
+                'post_status'    => array('inherit', 'private'),
+                'posts_per_page' => -1,
+                'fields'         => 'ids',
+                'meta_query'     => array(
+                    array(
+                        'key'     => 'shared_folder_id',
+                        'value'   => array_map('intval', $folder_ids),
+                        'compare' => 'IN',
+                    ),
+                ),
+            )
+        );
+
+        $has_error = false;
+        if (! empty($file_ids)) {
+            $this->file_permission_repository->delete_permissions_by_file_ids($file_ids);
+            foreach ($file_ids as $file_id) {
+                $deleted_file = wp_delete_attachment((int) $file_id, true);
+                if ($deleted_file === false) {
+                    $has_error = true;
+                }
+            }
+        }
+
+        $this->permission_repository->delete_permissions_by_folder_ids($folder_ids);
+
+        foreach ((array) $folder_ids as $delete_folder_id) {
+            $deleted_folder = wp_delete_post((int) $delete_folder_id, true);
+            if ($deleted_folder === false) {
+                $has_error = true;
+            }
+        }
+
+        $this->redirect_with_notice($has_error ? 'folder_delete_error' : 'folder_deleted');
+    }
+
+    /**
+     * Handler: eliminar archivo.
+     *
+     * @return void
+     */
+    public function handle_delete_file()
+    {
+        $this->deny_if_not_manager();
+
+        $file_id = isset($_GET['file_id']) ? (int) $_GET['file_id'] : 0;
+        if ($file_id <= 0) {
+            $this->redirect_with_notice('file_delete_invalid');
+        }
+
+        check_admin_referer('shared_docs_delete_file_' . $file_id);
+
+        $file_post = get_post($file_id);
+        if (! $file_post || $file_post->post_type !== 'attachment') {
+            $this->redirect_with_notice('file_delete_invalid');
+        }
+
+        $this->file_permission_repository->delete_permissions_by_file_ids(array($file_id));
+        $deleted = wp_delete_attachment($file_id, true);
+
+        $this->redirect_with_notice($deleted === false ? 'file_delete_error' : 'file_deleted');
     }
 
     /**
@@ -1058,9 +1196,15 @@ class Admin_Controller
             'folder_created'    => __('Carpeta creada correctamente.', 'shared-docs-manager'),
             'folder_invalid'    => __('Nombre de carpeta inválido.', 'shared-docs-manager'),
             'folder_error'      => __('No se pudo crear la carpeta.', 'shared-docs-manager'),
+            'folder_deleted'    => __('Carpeta eliminada correctamente.', 'shared-docs-manager'),
+            'folder_delete_error' => __('La carpeta se eliminó parcialmente o hubo errores al borrar su contenido.', 'shared-docs-manager'),
+            'folder_delete_invalid' => __('No se pudo identificar la carpeta a eliminar.', 'shared-docs-manager'),
             'upload_ok'         => __('Archivo subido correctamente.', 'shared-docs-manager'),
             'upload_invalid'    => __('Datos de subida inválidos.', 'shared-docs-manager'),
             'upload_error'      => __('No se pudo subir el archivo.', 'shared-docs-manager'),
+            'file_deleted'      => __('Archivo eliminado correctamente.', 'shared-docs-manager'),
+            'file_delete_error' => __('No se pudo eliminar el archivo.', 'shared-docs-manager'),
+            'file_delete_invalid' => __('No se pudo identificar el archivo a eliminar.', 'shared-docs-manager'),
             'permission_saved'  => __('Permiso guardado correctamente.', 'shared-docs-manager'),
             'permission_deleted'=> __('Permiso revocado correctamente.', 'shared-docs-manager'),
             'permission_invalid'=> __('Datos de permiso inválidos.', 'shared-docs-manager'),
@@ -1205,6 +1349,189 @@ class Admin_Controller
         }
 
         return array($children_count, $files_count);
+    }
+
+    /**
+     * Renderiza árbol jerárquico de carpetas con archivos.
+     *
+     * @param array $folders Carpetas.
+     * @param array $files   Archivos.
+     *
+     * @return string
+     */
+    private function render_folder_tree_with_files($folders, $files)
+    {
+        $folders = (array) $folders;
+        $files = (array) $files;
+
+        $folder_children = array();
+        $folder_lookup = array();
+        foreach ($folders as $folder) {
+            $folder_id = (int) $folder->ID;
+            $folder_lookup[$folder_id] = true;
+            $parent_id = (int) $folder->post_parent;
+            if (! isset($folder_children[$parent_id])) {
+                $folder_children[$parent_id] = array();
+            }
+            $folder_children[$parent_id][] = $folder;
+        }
+
+        $files_map = array();
+        $orphan_files = array();
+        foreach ($files as $file) {
+            $folder_id = (int) get_post_meta((int) $file->ID, 'shared_folder_id', true);
+            if ($folder_id > 0 && isset($folder_lookup[$folder_id])) {
+                if (! isset($files_map[$folder_id])) {
+                    $files_map[$folder_id] = array();
+                }
+                $files_map[$folder_id][] = $file;
+            } else {
+                $orphan_files[] = $file;
+            }
+        }
+
+        $tree = $this->render_folder_tree_recursive(0, $folder_children, $files_map);
+        $html = '';
+        if ($tree !== '') {
+            $html .= '<ul class="shared-docs-tree">' . $tree . '</ul>';
+        }
+
+        if (! empty($orphan_files)) {
+            $html .= '<h4>' . esc_html__('Archivos sin carpeta asignada', 'shared-docs-manager') . '</h4>';
+            $html .= '<ul class="shared-docs-tree shared-docs-tree-orphans">';
+            foreach ($orphan_files as $file) {
+                $file_id = (int) $file->ID;
+                $delete_link = wp_nonce_url(
+                    add_query_arg(
+                        array(
+                            'action'  => 'shared_docs_delete_file',
+                            'file_id' => $file_id,
+                        ),
+                        admin_url('admin-post.php')
+                    ),
+                    'shared_docs_delete_file_' . $file_id
+                );
+
+                $html .= '<li class="shared-docs-tree__node">';
+                $html .= '<div class="shared-docs-tree__item shared-docs-tree__item--file">';
+                $html .= '<span class="shared-docs-tree__icon">📄</span>';
+                $html .= '<span class="shared-docs-tree__label">' . esc_html($file->post_title) . '</span>';
+                $html .= '<a class="shared-docs-tree__delete" href="' . esc_url($delete_link) . '" onclick="return confirm(\'' . esc_js(__('¿Eliminar este archivo?', 'shared-docs-manager')) . '\');">' . esc_html__('Borrar', 'shared-docs-manager') . '</a>';
+                $html .= '</div></li>';
+            }
+            $html .= '</ul>';
+        }
+
+        return $html;
+    }
+
+    /**
+     * Renderizado recursivo del árbol.
+     *
+     * @param int   $parent_id       ID padre.
+     * @param array $folder_children Mapa de carpetas hijas.
+     * @param array $files_map       Mapa de archivos por carpeta.
+     *
+     * @return string
+     */
+    private function render_folder_tree_recursive($parent_id, $folder_children, $files_map)
+    {
+        $parent_id = (int) $parent_id;
+        if (empty($folder_children[$parent_id])) {
+            return '';
+        }
+
+        $html = '';
+        foreach ($folder_children[$parent_id] as $folder) {
+            $folder_id = (int) $folder->ID;
+            $delete_folder_link = wp_nonce_url(
+                add_query_arg(
+                    array(
+                        'action'    => 'shared_docs_delete_folder',
+                        'folder_id' => $folder_id,
+                    ),
+                    admin_url('admin-post.php')
+                ),
+                'shared_docs_delete_folder_' . $folder_id
+            );
+
+            $html .= '<li class="shared-docs-tree__node">';
+            $html .= '<div class="shared-docs-tree__item shared-docs-tree__item--folder">';
+            $html .= '<span class="shared-docs-tree__icon">📁</span>';
+            $html .= '<span class="shared-docs-tree__label">' . esc_html($folder->post_title) . '</span>';
+            $html .= '<a class="shared-docs-tree__delete" href="' . esc_url($delete_folder_link) . '" onclick="return confirm(\'' . esc_js(__('¿Eliminar esta carpeta y todo su contenido?', 'shared-docs-manager')) . '\');">' . esc_html__('Borrar carpeta', 'shared-docs-manager') . '</a>';
+            $html .= '</div>';
+
+            $child_html = '';
+            if (! empty($files_map[$folder_id])) {
+                foreach ($files_map[$folder_id] as $file) {
+                    $file_id = (int) $file->ID;
+                    $delete_file_link = wp_nonce_url(
+                        add_query_arg(
+                            array(
+                                'action'  => 'shared_docs_delete_file',
+                                'file_id' => $file_id,
+                            ),
+                            admin_url('admin-post.php')
+                        ),
+                        'shared_docs_delete_file_' . $file_id
+                    );
+
+                    $child_html .= '<li class="shared-docs-tree__node">';
+                    $child_html .= '<div class="shared-docs-tree__item shared-docs-tree__item--file">';
+                    $child_html .= '<span class="shared-docs-tree__icon">📄</span>';
+                    $child_html .= '<span class="shared-docs-tree__label">' . esc_html($file->post_title) . '</span>';
+                    $child_html .= '<a class="shared-docs-tree__delete" href="' . esc_url($delete_file_link) . '" onclick="return confirm(\'' . esc_js(__('¿Eliminar este archivo?', 'shared-docs-manager')) . '\');">' . esc_html__('Borrar', 'shared-docs-manager') . '</a>';
+                    $child_html .= '</div>';
+                    $child_html .= '</li>';
+                }
+            }
+
+            $child_html .= $this->render_folder_tree_recursive($folder_id, $folder_children, $files_map);
+
+            if ($child_html !== '') {
+                $html .= '<ul class="shared-docs-tree__children">' . $child_html . '</ul>';
+            }
+
+            $html .= '</li>';
+        }
+
+        return $html;
+    }
+
+    /**
+     * Obtiene IDs descendientes de una carpeta, incluyendo la propia.
+     * El resultado queda en orden hijos->padre para facilitar borrado.
+     *
+     * @param int $folder_id Carpeta raíz.
+     *
+     * @return array
+     */
+    private function get_descendant_folder_ids($folder_id)
+    {
+        $folder_id = (int) $folder_id;
+        if ($folder_id <= 0) {
+            return array();
+        }
+
+        $children = get_posts(
+            array(
+                'post_type'      => 'shared_folder',
+                'post_status'    => array('publish', 'private'),
+                'post_parent'    => $folder_id,
+                'posts_per_page' => -1,
+                'fields'         => 'ids',
+            )
+        );
+
+        $ids = array();
+        foreach ((array) $children as $child_id) {
+            $ids = array_merge($ids, $this->get_descendant_folder_ids((int) $child_id));
+        }
+
+        $ids[] = $folder_id;
+
+        return array_values(array_unique(array_map('intval', $ids)));
     }
 
     /**

@@ -91,15 +91,17 @@ class Front_Controller
             <nav class="shared-docs-breadcrumb" aria-label="<?php esc_attr_e('Ruta de carpetas', 'shared-docs-manager'); ?>"></nav>
 
             <div class="shared-docs-content">
-                <section class="shared-docs-section">
+                <section class="shared-docs-section" data-section="folders">
                     <h4><?php esc_html_e('Carpetas', 'shared-docs-manager'); ?></h4>
                     <div class="shared-docs-grid" data-region="folders"></div>
                 </section>
 
-                <section class="shared-docs-section">
+                <section class="shared-docs-section" data-section="files">
                     <h4><?php esc_html_e('Archivos', 'shared-docs-manager'); ?></h4>
                     <div class="shared-docs-grid" data-region="files"></div>
                 </section>
+
+                <div class="shared-docs-empty shared-docs-directory-empty" data-region="directory-empty" hidden></div>
             </div>
         </div>
 
@@ -251,6 +253,7 @@ class Front_Controller
                         'loading'         => __('Cargando...', 'shared-docs-manager'),
                         'noFolders'       => __('No hay carpetas disponibles.', 'shared-docs-manager'),
                         'noFiles'         => __('No hay archivos en esta carpeta.', 'shared-docs-manager'),
+                        'noDirectoryItems'=> __('No hay archivos ni carpetas en el directorio "%s".', 'shared-docs-manager'),
                         'downloadError'   => __('No se pudo descargar el archivo.', 'shared-docs-manager'),
                         'excelLoadError'  => __('No se pudo abrir el archivo Excel.', 'shared-docs-manager'),
                         'excelSaveError'  => __('No se pudo guardar el archivo Excel.', 'shared-docs-manager'),

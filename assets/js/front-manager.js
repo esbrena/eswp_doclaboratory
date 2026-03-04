@@ -8,6 +8,9 @@
 
   const folderRegion = root.querySelector('[data-region="folders"]');
   const fileRegion = root.querySelector('[data-region="files"]');
+  const folderSection = root.querySelector('[data-section="folders"]');
+  const fileSection = root.querySelector('[data-section="files"]');
+  const directoryEmptyRegion = root.querySelector('[data-region="directory-empty"]');
   const breadcrumbRegion = root.querySelector(".shared-docs-breadcrumb");
   const goRootButton = root.querySelector('[data-action="go-root"]');
 
@@ -95,6 +98,11 @@
     target.appendChild(el);
   };
 
+  const setVisibility = (element, visible) => {
+    if (!element) return;
+    element.hidden = !visible;
+  };
+
   const showToast = (text, type = "info") => {
     const toast = document.createElement("div");
     toast.className = `shared-docs-toast shared-docs-toast-${type}`;
@@ -158,10 +166,6 @@
 
   const renderFolders = () => {
     folderRegion.innerHTML = "";
-    if (!state.folders.length) {
-      showInlineMessage(folderRegion, config.messages.noFolders);
-      return;
-    }
 
     state.folders.forEach((folder) => {
       const card = document.createElement("article");
@@ -326,10 +330,6 @@
 
   const renderFiles = () => {
     fileRegion.innerHTML = "";
-    if (!state.currentFolderId || !state.files.length) {
-      showInlineMessage(fileRegion, config.messages.noFiles);
-      return;
-    }
 
     state.files.forEach((file) => {
       const card = document.createElement("article");
@@ -376,6 +376,37 @@
     });
   };
 
+  const renderDirectoryState = () => {
+    const hasFolders = state.folders.length > 0;
+    const hasFiles = state.files.length > 0;
+
+    setVisibility(folderSection, hasFolders);
+    setVisibility(fileSection, hasFiles);
+
+    if (!hasFolders && !hasFiles) {
+      const fallbackDirectoryName = state.currentFolderId ? "directorio actual" : "Inicio";
+      const currentDirectoryName =
+        state.currentFolderId && state.breadcrumb.length
+          ? state.breadcrumb[state.breadcrumb.length - 1].title
+          : fallbackDirectoryName;
+      const template =
+        (config.messages && config.messages.noDirectoryItems) ||
+        'No hay archivos ni carpetas en el directorio "%s".';
+      const text = template.replace("%s", currentDirectoryName);
+
+      if (directoryEmptyRegion) {
+        directoryEmptyRegion.textContent = text;
+      }
+      setVisibility(directoryEmptyRegion, true);
+      return;
+    }
+
+    if (directoryEmptyRegion) {
+      directoryEmptyRegion.textContent = "";
+    }
+    setVisibility(directoryEmptyRegion, false);
+  };
+
   const closeModal = () => {
     if (!modal) return;
     state.excelEditor = null;
@@ -388,6 +419,9 @@
   const loadFolder = async (folderId) => {
     state.currentFolderId = folderId;
 
+    setVisibility(folderSection, true);
+    setVisibility(fileSection, true);
+    setVisibility(directoryEmptyRegion, false);
     showInlineMessage(folderRegion, config.messages.loading);
     showInlineMessage(fileRegion, config.messages.loading);
 
@@ -405,7 +439,11 @@
       renderBreadcrumb();
       renderFolders();
       renderFiles();
+      renderDirectoryState();
     } catch (error) {
+      setVisibility(folderSection, true);
+      setVisibility(fileSection, true);
+      setVisibility(directoryEmptyRegion, false);
       showInlineMessage(folderRegion, error.message || config.messages.requestError);
       showInlineMessage(fileRegion, error.message || config.messages.requestError);
     }

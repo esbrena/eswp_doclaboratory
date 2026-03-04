@@ -30,11 +30,17 @@ Características principales
   - archivos subidos,
   - permisos por carpeta,
   - permisos por archivo.
+- Visualización en árbol jerárquico de carpetas/archivos en admin.
+- Borrado de carpetas (recursivo) y archivos desde el panel de administración.
 - Shortcode frontend:
   - `[shared_document_manager]` (navegación completa tipo Drive)
   - `[shared_document_drive]` (alias de navegación completa)
   - `[shared_document_overview]` (últimas carpetas/archivos + botón "Ver y navegar")
   - UI responsive estilo explorador con breadcrumb y navegación dinámica.
+- Comportamiento UI:
+  - oculta la sección de carpetas si no hay carpetas en el directorio actual,
+  - oculta la sección de archivos si no hay archivos,
+  - muestra mensaje único si no hay ni carpetas ni archivos en el directorio.
 - Endpoints REST protegidos:
   - `GET /wp-json/shared-docs/v1/folders`
   - `GET /wp-json/shared-docs/v1/files?folder_id=ID`

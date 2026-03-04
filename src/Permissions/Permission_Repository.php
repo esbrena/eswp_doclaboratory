@@ -313,6 +313,33 @@ class Permission_Repository
     }
 
     /**
+     * Elimina permisos vinculados a varias carpetas.
+     *
+     * @param array $folder_ids IDs de carpeta.
+     *
+     * @return int Cantidad eliminada.
+     */
+    public function delete_permissions_by_folder_ids($folder_ids)
+    {
+        global $wpdb;
+
+        $folder_ids = array_values(array_unique(array_filter(array_map('intval', (array) $folder_ids))));
+        if (empty($folder_ids)) {
+            return 0;
+        }
+
+        $placeholders = implode(',', array_fill(0, count($folder_ids), '%d'));
+        $sql = $wpdb->prepare(
+            "DELETE FROM {$this->table_name} WHERE folder_id IN ({$placeholders})",
+            $folder_ids
+        );
+
+        $wpdb->query($sql);
+
+        return (int) $wpdb->rows_affected;
+    }
+
+    /**
      * Limpia permisos expirados.
      *
      * @return int Cantidad eliminada.
