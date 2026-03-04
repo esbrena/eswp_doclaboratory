@@ -31,7 +31,9 @@ Características principales
   - permisos por carpeta,
   - permisos por archivo.
 - Shortcode frontend:
-  - `[shared_document_manager]`
+  - `[shared_document_manager]` (navegación completa tipo Drive)
+  - `[shared_document_drive]` (alias de navegación completa)
+  - `[shared_document_overview]` (últimas carpetas/archivos + botón "Ver y navegar")
   - UI responsive estilo explorador con breadcrumb y navegación dinámica.
 - Endpoints REST protegidos:
   - `GET /wp-json/shared-docs/v1/folders`
@@ -58,6 +60,41 @@ Uso rápido
    - subir archivos,
    - asignar/editar/revocar permisos por usuario.
 3. Inserta el shortcode `[shared_document_manager]` en la página deseada.
+
+Shortcodes disponibles
+----------------------
+
+### Navegación completa tipo Drive
+
+```text
+[shared_document_manager]
+```
+
+Alias:
+
+```text
+[shared_document_drive]
+```
+
+Parámetros útiles:
+
+- `no_access_message`
+- `guest_message`
+- `hide_when_no_access` (`yes|no`)
+
+### Resumen de últimas carpetas/archivos
+
+```text
+[shared_document_overview manager_url="/documentos/" folders_limit="6" files_limit="6"]
+```
+
+Parámetros útiles:
+
+- `manager_url` (URL del enlace "Ver y navegar")
+- `button_label`
+- `folders_limit`
+- `files_limit`
+- `title`
 
 Notas
 -----

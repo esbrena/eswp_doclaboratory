@@ -132,6 +132,103 @@ class Front_Controller
     }
 
     /**
+     * Renderiza resumen rápido con últimas carpetas y archivos.
+     *
+     * @param int   $user_id Usuario.
+     * @param array $atts    Configuración de salida.
+     *
+     * @return string
+     */
+    public function render_overview($user_id, $atts = array())
+    {
+        $user_id = (int) $user_id;
+        wp_enqueue_style('shared-docs-front');
+
+        $folders_limit = isset($atts['folders_limit']) ? max(1, (int) $atts['folders_limit']) : 6;
+        $files_limit = isset($atts['files_limit']) ? max(1, (int) $atts['files_limit']) : 6;
+        $manager_url = isset($atts['manager_url']) ? (string) $atts['manager_url'] : '';
+        $button_label = isset($atts['button_label']) ? (string) $atts['button_label'] : __('Ver y navegar', 'shared-docs-manager');
+        $title = isset($atts['title']) ? (string) $atts['title'] : __('Documentos compartidos', 'shared-docs-manager');
+
+        $latest_folders = $this->get_latest_accessible_folders($user_id, $folders_limit);
+        $latest_files = $this->get_latest_accessible_files($user_id, $files_limit);
+
+        ob_start();
+        ?>
+        <div class="shared-docs-overview">
+            <div class="shared-docs-overview__header">
+                <div>
+                    <h3><?php echo esc_html($title); ?></h3>
+                    <p><?php esc_html_e('Acceso rápido a tus contenidos recientes.', 'shared-docs-manager'); ?></p>
+                </div>
+                <?php if ($manager_url !== '') : ?>
+                    <a class="shared-docs-btn shared-docs-btn-primary" href="<?php echo esc_url($manager_url); ?>">
+                        <?php echo esc_html($button_label); ?>
+                    </a>
+                <?php endif; ?>
+            </div>
+
+            <div class="shared-docs-overview__grid">
+                <section class="shared-docs-overview__col">
+                    <h4><?php esc_html_e('Últimas carpetas', 'shared-docs-manager'); ?></h4>
+                    <?php if (empty($latest_folders)) : ?>
+                        <div class="shared-docs-empty"><?php esc_html_e('No hay carpetas recientes disponibles.', 'shared-docs-manager'); ?></div>
+                    <?php else : ?>
+                        <ul class="shared-docs-overview__list">
+                            <?php foreach ($latest_folders as $folder) : ?>
+                                <li>
+                                    <span class="shared-docs-overview__icon">📁</span>
+                                    <div>
+                                        <strong><?php echo esc_html($folder->post_title); ?></strong>
+                                        <small><?php echo esc_html($this->format_post_datetime($folder->post_modified_gmt)); ?></small>
+                                    </div>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                    <?php endif; ?>
+                </section>
+
+                <section class="shared-docs-overview__col">
+                    <h4><?php esc_html_e('Últimos archivos', 'shared-docs-manager'); ?></h4>
+                    <?php if (empty($latest_files)) : ?>
+                        <div class="shared-docs-empty"><?php esc_html_e('No hay archivos recientes disponibles.', 'shared-docs-manager'); ?></div>
+                    <?php else : ?>
+                        <ul class="shared-docs-overview__list">
+                            <?php foreach ($latest_files as $file) : ?>
+                                <?php
+                                $folder_id = (int) get_post_meta((int) $file->ID, 'shared_folder_id', true);
+                                $folder_title = $folder_id > 0 ? get_the_title($folder_id) : '';
+                                $folder_title = $folder_title ? $folder_title : __('Sin carpeta', 'shared-docs-manager');
+                                ?>
+                                <li>
+                                    <span class="shared-docs-overview__icon">📄</span>
+                                    <div>
+                                        <strong><?php echo esc_html($file->post_title); ?></strong>
+                                        <small>
+                                            <?php
+                                            echo esc_html(
+                                                sprintf(
+                                                    __('%1$s · %2$s', 'shared-docs-manager'),
+                                                    $folder_title,
+                                                    $this->format_post_datetime($file->post_modified_gmt)
+                                                )
+                                            );
+                                            ?>
+                                        </small>
+                                    </div>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                    <?php endif; ?>
+                </section>
+            </div>
+        </div>
+        <?php
+
+        return (string) ob_get_clean();
+    }
+
+    /**
      * Encola assets y datos para JS.
      *
      * @return void
@@ -165,5 +262,76 @@ class Front_Controller
             );
             $this->localized = true;
         }
+    }
+
+    /**
+     * Obtiene carpetas recientes accesibles para un usuario.
+     *
+     * @param int $user_id Usuario.
+     * @param int $limit   Límite.
+     *
+     * @return array
+     */
+    private function get_latest_accessible_folders($user_id, $limit)
+    {
+        $folder_ids = $this->permission_manager->get_accessible_folder_ids((int) $user_id, 'can_read');
+        if (empty($folder_ids)) {
+            return array();
+        }
+
+        return get_posts(
+            array(
+                'post_type'      => 'shared_folder',
+                'post_status'    => array('publish', 'private'),
+                'posts_per_page' => (int) $limit,
+                'post__in'       => array_map('intval', $folder_ids),
+                'orderby'        => 'modified',
+                'order'          => 'DESC',
+            )
+        );
+    }
+
+    /**
+     * Obtiene archivos recientes accesibles para un usuario.
+     *
+     * @param int $user_id Usuario.
+     * @param int $limit   Límite.
+     *
+     * @return array
+     */
+    private function get_latest_accessible_files($user_id, $limit)
+    {
+        $file_ids = $this->permission_manager->get_accessible_file_ids((int) $user_id, 'can_read');
+        if (empty($file_ids)) {
+            return array();
+        }
+
+        return get_posts(
+            array(
+                'post_type'      => 'attachment',
+                'post_status'    => array('inherit', 'private'),
+                'posts_per_page' => (int) $limit,
+                'post__in'       => array_map('intval', $file_ids),
+                'orderby'        => 'modified',
+                'order'          => 'DESC',
+            )
+        );
+    }
+
+    /**
+     * Formatea datetime GMT de post para salida.
+     *
+     * @param string $gmt_datetime Datetime GMT.
+     *
+     * @return string
+     */
+    private function format_post_datetime($gmt_datetime)
+    {
+        $timestamp = strtotime((string) $gmt_datetime . ' GMT');
+        if (! $timestamp) {
+            return '';
+        }
+
+        return wp_date(get_option('date_format') . ' ' . get_option('time_format'), $timestamp);
     }
 }
