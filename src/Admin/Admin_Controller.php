@@ -2084,7 +2084,7 @@ class Admin_Controller
             $html .= '<input type="hidden" name="return_page" value="shared-docs" />';
             $html .= '<input type="hidden" name="folder_id" value="' . (int) $folder_id . '" />';
             $html .= '<input type="hidden" name="_wpnonce" value="' . esc_attr($rename_nonce) . '" />';
-            $html .= '<input type="text" name="folder_name" value="' . esc_attr($folder->post_title) . '" />';
+            $html .= '<small>Nombre de carpeta</small><input class="shared-label-edit-name-folder" type="text" name="folder_name" value="' . esc_attr($folder->post_title) . '" />';
             $html .= '<button type="submit" class="button button-small">' . esc_html__('Guardar nombre', 'shared-docs-manager') . '</button>';
             $html .= '</form>';
             $html .= '<button type="button" class="button button-small shared-docs-open-move-modal" data-item-type="folder" data-item-id="' . (int) $folder_id . '" data-item-label="' . esc_attr($folder->post_title) . '" data-current-folder="' . (int) $folder->post_parent . '" data-invalid-targets="' . esc_attr($invalid_targets) . '">' . esc_html__('Mover a...', 'shared-docs-manager') . '</button>';
