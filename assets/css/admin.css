@@ -1,0 +1,349 @@
+.shared-docs-admin-wrap .shared-docs-grid-admin {
+  display: grid;
+  grid-template-columns: minmax(320px, 1fr) minmax(320px, 1fr);
+  gap: 16px;
+  margin-top: 14px;
+}
+
+.shared-docs-admin-wrap .shared-docs-card {
+  background: #fff;
+  border: 1px solid #dbe3ee;
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.shared-docs-admin-wrap .shared-docs-card h2 {
+  margin-top: 0;
+}
+.shared-label-edit-name-folder {
+  margin-top:8px;
+  margin-bottom:8px;
+}
+.shared-docs-admin-wrap .shared-docs-card-full {
+  grid-column: 1 / -1;
+  margin-top: 16px;
+}
+
+.shared-docs-admin-wrap label {
+  display: block;
+  margin: 10px 0 6px;
+  font-weight: 600;
+}
+
+.shared-docs-admin-wrap input[type="text"],
+.shared-docs-admin-wrap input[type="datetime-local"],
+.shared-docs-admin-wrap select,
+.shared-docs-admin-wrap textarea {
+  width: 100%;
+  max-width: 100%;
+}
+
+.shared-docs-admin-wrap select[multiple] {
+  min-height: 150px;
+}
+
+.shared-docs-admin-wrap fieldset.shared-docs-checkboxes {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  margin-top: 10px;
+}
+
+.shared-docs-admin-wrap fieldset.shared-docs-checkboxes label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 14px;
+  font-weight: 400;
+}
+
+.shared-docs-inline-checkbox {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.shared-docs-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.shared-docs-badge-success {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.shared-docs-badge-danger {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.shared-docs-user-permissions table {
+  margin-top: 8px;
+}
+
+.shared-docs-tree,
+.shared-docs-tree__children {
+  list-style: none;
+  margin: 0;
+  padding-left: 18px;
+  padding-left: 8px;
+}
+
+.shared-docs-tree {
+  padding-left: 0;
+}
+
+.shared-docs-tree__node {
+  margin: 6px 0;
+}
+
+.shared-docs-tree__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.shared-docs-tree__item--folder {
+  background: #f8fbff;
+}
+
+.shared-docs-tree__icon {
+  font-size: 16px;
+}
+
+.shared-docs-tree__label {
+  flex: 1;
+  font-weight: 500;
+}
+
+.shared-docs-tree__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #eef2ff;
+  color: #3730a3;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  margin-left: auto;
+}
+
+.shared-docs-tree__item input[type="checkbox"] {
+  margin: 0;
+}
+
+.shared-docs-tree__delete {
+  color: #b91c1c;
+  text-decoration: none;
+  font-size: 12px;
+}
+
+.shared-docs-tree__delete:hover {
+  text-decoration: underline;
+}
+
+.shared-docs-tree-wrap {
+  max-height: 70vh;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.shared-docs-tree-global-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  background: #f8fafc;
+  border: 1px solid #dbe3ee;
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 12px;
+}
+
+.shared-docs-tree-global-actions__info {
+  font-weight: 600;
+}
+
+.shared-docs-tree-global-actions__buttons {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.shared-docs-accordion {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.shared-docs-accordion > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.shared-docs-accordion > summary::-webkit-details-marker {
+  display: none;
+}
+
+.shared-docs-tree__controls {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 0 10px 10px;
+}
+
+.shared-docs-inline-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.shared-docs-inline-form input[type="text"] {
+  width: min(260px, 70vw);
+}
+
+.shared-docs-modal-admin[hidden] {
+  display: none;
+}
+
+.shared-docs-modal-admin {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+}
+
+.shared-docs-modal-admin__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.5);
+}
+
+.shared-docs-modal-admin__dialog {
+  position: relative;
+  z-index: 2;
+  width: min(520px, 92vw);
+  margin: 8vh auto;
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid #cbd5e1;
+  padding: 14px;
+}
+
+.shared-docs-modal-admin__dialog--wide {
+  width: min(920px, 95vw);
+}
+
+.shared-docs-modal-admin__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.shared-docs-modal-admin__header h3 {
+  margin: 0;
+}
+
+.shared-docs-modal-admin__footer {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.shared-docs-access-current {
+  max-height: 34vh;
+  overflow: auto;
+}
+
+.shared-docs-access-add {
+  margin-top: 12px;
+}
+
+.shared-docs-access-user-details {
+  background: #f8fafc;
+  border-left: 3px solid #cbd5e1;
+}
+
+.shared-docs-resource-table td:first-child {
+  width: 60px;
+  text-align: center;
+}
+
+.shared-docs-user-checklist {
+  display: grid;
+  gap: 6px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px;
+  max-height: 240px;
+  overflow: auto;
+  background: #fff;
+}
+
+.shared-docs-user-checklist__item {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  margin: 0 !important;
+  font-weight: 400 !important;
+}
+
+.shared-docs-switch-row {
+  display: flex !important;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.shared-docs-switch {
+  position: relative;
+  display: inline-block;
+  width: 48px;
+  height: 24px;
+}
+
+.shared-docs-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.shared-docs-slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background-color: #cbd5e1;
+  transition: 0.2s;
+  border-radius: 999px;
+}
+
+.shared-docs-slider:before {
+  content: "";
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  left: 3px;
+  top: 3px;
+  background: #fff;
+  transition: 0.2s;
+  border-radius: 50%;
+}
+
+.shared-docs-switch input:checked + .shared-docs-slider {
+  background-color: #2563eb;
+}
+
+.shared-docs-switch input:checked + .shared-docs-slider:before {
+  transform: translateX(24px);
+}

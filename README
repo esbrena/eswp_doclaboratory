@@ -1,1 +1,116 @@
+Shared Document Manager (WordPress Plugin)
+=========================================
 
+Plugin modular para gestionar documentos compartidos en carpetas/subcarpetas con permisos por usuario individual.
+
+Características principales
+---------------------------
+
+- CPT jerárquico `shared_folder` para carpetas.
+- Archivos como `attachment` asociados por meta `shared_folder_id`.
+- Tabla personalizada de permisos: `wp_shared_folder_permissions`.
+- Tabla personalizada adicional de permisos por archivo: `wp_shared_file_permissions`.
+- Tabla de actividad: `wp_shared_activity_log`.
+- Roles gestores globales por defecto: `admin`, `admin_lab` (y `administrator` si existe).
+- Permisos por usuario/carpeta:
+- Permisos por usuario/archivo:
+  - Lectura (`can_read`)
+  - Descarga (`can_download`)
+  - Edición Excel (`can_edit_excel`)
+  - Expiración opcional (`expires_at`)
+- Permisos por usuario/carpeta:
+  - Lectura (`can_read`)
+  - Descarga (`can_download`)
+  - Edición Excel (`can_edit_excel`)
+  - Expiración opcional (`expires_at`)
+- Revocación manual y limpieza automática diaria de permisos expirados (WP-Cron).
+- Asignación masiva de permisos (múltiples usuarios x múltiples carpetas/archivos).
+- Vista administrativa de:
+  - carpetas creadas,
+  - archivos subidos,
+  - permisos por carpeta,
+  - permisos por archivo.
+- Visualización en árbol jerárquico de carpetas/archivos en admin.
+- Borrado de carpetas (recursivo) y archivos desde el panel de administración.
+- Renombrado de carpetas.
+- Movimiento de carpetas/archivos a otra carpeta mediante modal "Mover a".
+- Nuevo menú de administración dividido:
+  - **Árbol de documentos** (gestión estructura y archivos)
+  - **Permisos de usuarios** (asignación y revisión de permisos)
+- Asignación masiva con checklist de usuarios y switch "Seleccionar a todos".
+- En listado masivo se muestran usuarios con roles `cie_user` y `cie_user_new`.
+- Shortcode frontend:
+  - `[shared_document_manager]` (navegación completa tipo Drive)
+  - `[shared_document_drive]` (alias de navegación completa)
+  - `[shared_document_overview]` (últimas carpetas/archivos + botón "Ver y navegar")
+  - UI responsive estilo explorador con breadcrumb y navegación dinámica.
+- Comportamiento UI:
+  - oculta la sección de carpetas si no hay carpetas en el directorio actual,
+  - oculta la sección de archivos si no hay archivos,
+  - muestra mensaje único si no hay ni carpetas ni archivos en el directorio.
+- Endpoints REST protegidos:
+  - `GET /wp-json/shared-docs/v1/folders`
+  - `GET /wp-json/shared-docs/v1/files?folder_id=ID`
+  - `GET /wp-json/shared-docs/v1/folder/ID/breadcrumb`
+  - `GET /wp-json/shared-docs/v1/download/ID`
+  - `POST /wp-json/shared-docs/v1/excel/save`
+- Edición de Excel en navegador con SheetJS.
+
+Funciones públicas
+------------------
+
+```php
+shared_user_has_access( int $user_id, ?int $folder_id = null ): bool
+shared_get_user_permissions_html( int $user_id ): string
+```
+
+Uso rápido
+----------
+
+1. Activa el plugin en WordPress.
+2. En el admin, abre **Shared Docs** para:
+   - crear carpetas/subcarpetas,
+   - subir archivos,
+   - asignar/editar/revocar permisos por usuario.
+3. Inserta el shortcode `[shared_document_manager]` en la página deseada.
+
+Shortcodes disponibles
+----------------------
+
+### Navegación completa tipo Drive
+
+```text
+[shared_document_manager]
+```
+
+Alias:
+
+```text
+[shared_document_drive]
+```
+
+Parámetros útiles:
+
+- `no_access_message`
+- `guest_message`
+- `hide_when_no_access` (`yes|no`)
+
+### Resumen de últimas carpetas/archivos
+
+```text
+[shared_document_overview manager_url="/documentos/" folders_limit="6" files_limit="6"]
+```
+
+Parámetros útiles:
+
+- `manager_url` (URL del enlace "Ver y navegar")
+- `button_label`
+- `folders_limit`
+- `files_limit`
+- `title`
+
+Notas
+-----
+
+- Los archivos se suben al subdirectorio protegido `uploads/shared-docs-protected`.
+- El acceso se valida por backend (REST) antes de listar, descargar o editar.
