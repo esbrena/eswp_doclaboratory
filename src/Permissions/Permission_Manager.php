@@ -496,7 +496,7 @@ class Permission_Manager
                                 );
                             $edit_url = add_query_arg(
                                 array(
-                                    'page'          => 'shared-docs',
+                                    'page'          => 'shared-docs-permissions',
                                     'action'        => 'edit_permission',
                                     'permission_id' => (int) $permission->id,
                                     'user_id'       => $user_id,
@@ -561,7 +561,7 @@ class Permission_Manager
                                 );
                             $edit_url = add_query_arg(
                                 array(
-                                    'page'          => 'shared-docs',
+                                    'page'          => 'shared-docs-permissions',
                                     'action'        => 'edit_file_permission',
                                     'permission_id' => (int) $permission->id,
                                     'user_id'       => $user_id,

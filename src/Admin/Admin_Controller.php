@@ -58,7 +58,9 @@ class Admin_Controller
         add_action('admin_enqueue_scripts', array($this, 'enqueue_assets'));
 
         add_action('admin_post_shared_docs_create_folder', array($this, 'handle_create_folder'));
+        add_action('admin_post_shared_docs_rename_folder', array($this, 'handle_rename_folder'));
         add_action('admin_post_shared_docs_upload_file', array($this, 'handle_upload_file'));
+        add_action('admin_post_shared_docs_move_item', array($this, 'handle_move_item'));
         add_action('admin_post_shared_docs_save_permission', array($this, 'handle_save_permission'));
         add_action('admin_post_shared_docs_save_file_permission', array($this, 'handle_save_file_permission'));
         add_action('admin_post_shared_docs_bulk_save_permissions', array($this, 'handle_bulk_save_permissions'));
@@ -88,9 +90,27 @@ class Admin_Controller
             __('Shared Docs', 'shared-docs-manager'),
             'read',
             'shared-docs',
-            array($this, 'render_admin_page'),
+            array($this, 'render_tree_page'),
             'dashicons-portfolio',
             26
+        );
+
+        add_submenu_page(
+            'shared-docs',
+            __('Árbol de documentos', 'shared-docs-manager'),
+            __('Árbol de documentos', 'shared-docs-manager'),
+            'read',
+            'shared-docs',
+            array($this, 'render_tree_page')
+        );
+
+        add_submenu_page(
+            'shared-docs',
+            __('Permisos de usuarios', 'shared-docs-manager'),
+            __('Permisos de usuarios', 'shared-docs-manager'),
+            'read',
+            'shared-docs-permissions',
+            array($this, 'render_permissions_page')
         );
     }
 
@@ -103,7 +123,7 @@ class Admin_Controller
      */
     public function enqueue_assets($hook)
     {
-        $allowed_hooks = array('toplevel_page_shared-docs', 'profile.php', 'user-edit.php');
+        $allowed_hooks = array('toplevel_page_shared-docs', 'shared-docs_page_shared-docs-permissions', 'profile.php', 'user-edit.php');
         if (! in_array($hook, $allowed_hooks, true)) {
             return;
         }
@@ -114,6 +134,432 @@ class Admin_Controller
             array(),
             SHARED_DOCS_VERSION
         );
+
+        wp_enqueue_script(
+            'shared-docs-admin',
+            SHARED_DOCS_URL . 'assets/js/admin-manager.js',
+            array(),
+            SHARED_DOCS_VERSION,
+            true
+        );
+    }
+
+    /**
+     * Página de gestión del árbol (carpetas y archivos).
+     *
+     * @return void
+     */
+    public function render_tree_page()
+    {
+        if (! $this->permission_manager->current_user_can_manage()) {
+            wp_die(esc_html__('No tienes permisos para gestionar documentos compartidos.', 'shared-docs-manager'));
+        }
+
+        $folders = $this->get_all_folders();
+        $files = $this->get_all_files();
+        $notice_code = isset($_GET['sd_notice']) ? sanitize_key(wp_unslash($_GET['sd_notice'])) : '';
+        $notice_text = $this->get_notice_message($notice_code);
+        ?>
+        <div class="wrap shared-docs-admin-wrap">
+            <h1><?php esc_html_e('Shared Docs · Árbol de documentos', 'shared-docs-manager'); ?></h1>
+
+            <?php if ($notice_text !== '') : ?>
+                <div class="notice notice-info is-dismissible">
+                    <p><?php echo esc_html($notice_text); ?></p>
+                </div>
+            <?php endif; ?>
+
+            <div class="shared-docs-grid-admin">
+                <section class="shared-docs-card">
+                    <h2><?php esc_html_e('Crear carpeta o subcarpeta', 'shared-docs-manager'); ?></h2>
+                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                        <input type="hidden" name="action" value="shared_docs_create_folder" />
+                        <input type="hidden" name="return_page" value="shared-docs" />
+                        <?php wp_nonce_field('shared_docs_create_folder'); ?>
+
+                        <label for="shared-folder-name"><?php esc_html_e('Nombre de carpeta', 'shared-docs-manager'); ?></label>
+                        <input id="shared-folder-name" type="text" name="folder_name" class="regular-text" required />
+
+                        <label for="shared-folder-parent"><?php esc_html_e('Carpeta padre', 'shared-docs-manager'); ?></label>
+                        <select id="shared-folder-parent" name="parent_folder_id">
+                            <option value="0"><?php esc_html_e('— Carpeta raíz —', 'shared-docs-manager'); ?></option>
+                            <?php echo $this->render_folder_options($folders); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+                        </select>
+
+                        <?php submit_button(__('Crear carpeta', 'shared-docs-manager')); ?>
+                    </form>
+                </section>
+
+                <section class="shared-docs-card">
+                    <h2><?php esc_html_e('Subir archivo', 'shared-docs-manager'); ?></h2>
+                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" enctype="multipart/form-data">
+                        <input type="hidden" name="action" value="shared_docs_upload_file" />
+                        <input type="hidden" name="return_page" value="shared-docs" />
+                        <?php wp_nonce_field('shared_docs_upload_file'); ?>
+
+                        <label for="shared-upload-folder"><?php esc_html_e('Carpeta destino', 'shared-docs-manager'); ?></label>
+                        <select id="shared-upload-folder" name="folder_id" required>
+                            <option value=""><?php esc_html_e('Selecciona carpeta...', 'shared-docs-manager'); ?></option>
+                            <?php echo $this->render_folder_options($folders); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+                        </select>
+
+                        <label for="shared-upload-file"><?php esc_html_e('Archivo', 'shared-docs-manager'); ?></label>
+                        <input id="shared-upload-file" type="file" name="shared_file_upload" required />
+
+                        <?php submit_button(__('Subir archivo', 'shared-docs-manager')); ?>
+                    </form>
+                </section>
+            </div>
+
+            <section class="shared-docs-card shared-docs-card-full">
+                <h2><?php esc_html_e('Árbol de carpetas y archivos', 'shared-docs-manager'); ?></h2>
+                <?php
+                $tree_html = $this->render_folder_tree_with_files($folders, $files);
+                if ($tree_html === '') :
+                    ?>
+                    <p><?php esc_html_e('No hay estructura de carpetas/archivos para mostrar.', 'shared-docs-manager'); ?></p>
+                <?php else : ?>
+                    <?php echo $tree_html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+                <?php endif; ?>
+            </section>
+
+            <?php echo $this->render_move_modal($folders); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+        </div>
+        <?php
+    }
+
+    /**
+     * Página de permisos de usuarios.
+     *
+     * @return void
+     */
+    public function render_permissions_page()
+    {
+        if (! $this->permission_manager->current_user_can_manage()) {
+            wp_die(esc_html__('No tienes permisos para gestionar documentos compartidos.', 'shared-docs-manager'));
+        }
+
+        $folders = $this->get_all_folders();
+        $files = $this->get_all_files();
+        $assignable_users = $this->get_assignable_users();
+
+        $filter_user_id = isset($_GET['user_id']) ? (int) $_GET['user_id'] : null;
+        $folder_permissions = $this->permission_repository->get_all_permissions($filter_user_id);
+        $file_permissions = $this->file_permission_repository->get_all_permissions($filter_user_id);
+
+        $editing_permission = null;
+        if (isset($_GET['action'], $_GET['permission_id']) && $_GET['action'] === 'edit_permission') {
+            $editing_permission = $this->permission_repository->get_permission((int) $_GET['permission_id']);
+        }
+        $editing_file_permission = null;
+        if (isset($_GET['action'], $_GET['permission_id']) && $_GET['action'] === 'edit_file_permission') {
+            $editing_file_permission = $this->file_permission_repository->get_permission((int) $_GET['permission_id']);
+        }
+
+        $assignable_users = $this->ensure_selected_users_present(
+            $assignable_users,
+            array(
+                $editing_permission ? (int) $editing_permission->user_id : 0,
+                $editing_file_permission ? (int) $editing_file_permission->user_id : 0,
+            )
+        );
+
+        $notice_code = isset($_GET['sd_notice']) ? sanitize_key(wp_unslash($_GET['sd_notice'])) : '';
+        $notice_text = $this->get_notice_message($notice_code);
+        ?>
+        <div class="wrap shared-docs-admin-wrap">
+            <h1><?php esc_html_e('Shared Docs · Permisos de usuarios', 'shared-docs-manager'); ?></h1>
+
+            <?php if ($notice_text !== '') : ?>
+                <div class="notice notice-info is-dismissible">
+                    <p><?php echo esc_html($notice_text); ?></p>
+                </div>
+            <?php endif; ?>
+
+            <section class="shared-docs-card shared-docs-card-full">
+                <h2><?php esc_html_e('Dar acceso a usuarios', 'shared-docs-manager'); ?></h2>
+                <div class="shared-docs-grid-admin">
+                    <section class="shared-docs-card">
+                        <h3>
+                            <?php
+                            echo $editing_permission
+                                ? esc_html__('Editar permiso por carpeta', 'shared-docs-manager')
+                                : esc_html__('Asignar permiso por carpeta', 'shared-docs-manager');
+                            ?>
+                        </h3>
+                        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                            <input type="hidden" name="action" value="shared_docs_save_permission" />
+                            <input type="hidden" name="return_page" value="shared-docs-permissions" />
+                            <?php wp_nonce_field('shared_docs_save_permission'); ?>
+
+                            <?php if ($editing_permission) : ?>
+                                <input type="hidden" name="permission_id" value="<?php echo (int) $editing_permission->id; ?>" />
+                            <?php endif; ?>
+
+                            <label for="shared-permission-user"><?php esc_html_e('Usuario', 'shared-docs-manager'); ?></label>
+                            <select id="shared-permission-user" name="user_id" required>
+                                <option value=""><?php esc_html_e('Selecciona usuario...', 'shared-docs-manager'); ?></option>
+                                <?php foreach ($assignable_users as $user) : ?>
+                                    <option value="<?php echo (int) $user->ID; ?>" <?php selected($editing_permission ? (int) $editing_permission->user_id : 0, (int) $user->ID); ?>>
+                                        <?php echo esc_html($user->display_name . ' (' . $user->user_email . ')'); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+
+                            <label for="shared-permission-folder"><?php esc_html_e('Carpeta', 'shared-docs-manager'); ?></label>
+                            <select id="shared-permission-folder" name="folder_id" required>
+                                <option value=""><?php esc_html_e('Selecciona carpeta...', 'shared-docs-manager'); ?></option>
+                                <?php
+                                echo $this->render_folder_options(
+                                    $folders,
+                                    $editing_permission ? (int) $editing_permission->folder_id : 0
+                                ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+                                ?>
+                            </select>
+
+                            <fieldset class="shared-docs-checkboxes">
+                                <legend><?php esc_html_e('Permisos', 'shared-docs-manager'); ?></legend>
+                                <label><input type="checkbox" name="can_read" value="1" <?php checked($editing_permission ? (int) $editing_permission->can_read : 1, 1); ?> /> <?php esc_html_e('Lectura', 'shared-docs-manager'); ?></label>
+                                <label><input type="checkbox" name="can_download" value="1" <?php checked($editing_permission ? (int) $editing_permission->can_download : 1, 1); ?> /> <?php esc_html_e('Descarga', 'shared-docs-manager'); ?></label>
+                                <label><input type="checkbox" name="can_edit_excel" value="1" <?php checked($editing_permission ? (int) $editing_permission->can_edit_excel : 0, 1); ?> /> <?php esc_html_e('Edición Excel', 'shared-docs-manager'); ?></label>
+                            </fieldset>
+
+                            <label for="shared-permission-expires"><?php esc_html_e('Fecha límite (opcional)', 'shared-docs-manager'); ?></label>
+                            <input id="shared-permission-expires" type="datetime-local" name="expires_at" value="<?php echo esc_attr($this->format_datetime_local($editing_permission ? $editing_permission->expires_at : '')); ?>" />
+
+                            <?php submit_button($editing_permission ? __('Actualizar permiso', 'shared-docs-manager') : __('Guardar permiso', 'shared-docs-manager')); ?>
+                        </form>
+                    </section>
+
+                    <section class="shared-docs-card">
+                        <h3>
+                            <?php
+                            echo $editing_file_permission
+                                ? esc_html__('Editar permiso por archivo', 'shared-docs-manager')
+                                : esc_html__('Asignar permiso por archivo', 'shared-docs-manager');
+                            ?>
+                        </h3>
+                        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                            <input type="hidden" name="action" value="shared_docs_save_file_permission" />
+                            <input type="hidden" name="return_page" value="shared-docs-permissions" />
+                            <?php wp_nonce_field('shared_docs_save_file_permission'); ?>
+
+                            <?php if ($editing_file_permission) : ?>
+                                <input type="hidden" name="permission_id" value="<?php echo (int) $editing_file_permission->id; ?>" />
+                            <?php endif; ?>
+
+                            <label for="shared-file-permission-user"><?php esc_html_e('Usuario', 'shared-docs-manager'); ?></label>
+                            <select id="shared-file-permission-user" name="user_id" required>
+                                <option value=""><?php esc_html_e('Selecciona usuario...', 'shared-docs-manager'); ?></option>
+                                <?php foreach ($assignable_users as $user) : ?>
+                                    <option value="<?php echo (int) $user->ID; ?>" <?php selected($editing_file_permission ? (int) $editing_file_permission->user_id : 0, (int) $user->ID); ?>>
+                                        <?php echo esc_html($user->display_name . ' (' . $user->user_email . ')'); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+
+                            <label for="shared-file-permission-file"><?php esc_html_e('Archivo', 'shared-docs-manager'); ?></label>
+                            <select id="shared-file-permission-file" name="file_id" required>
+                                <option value=""><?php esc_html_e('Selecciona archivo...', 'shared-docs-manager'); ?></option>
+                                <?php echo $this->render_file_options($files, $editing_file_permission ? (int) $editing_file_permission->file_id : 0); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+                            </select>
+
+                            <fieldset class="shared-docs-checkboxes">
+                                <legend><?php esc_html_e('Permisos', 'shared-docs-manager'); ?></legend>
+                                <label><input type="checkbox" name="can_read" value="1" <?php checked($editing_file_permission ? (int) $editing_file_permission->can_read : 1, 1); ?> /> <?php esc_html_e('Lectura', 'shared-docs-manager'); ?></label>
+                                <label><input type="checkbox" name="can_download" value="1" <?php checked($editing_file_permission ? (int) $editing_file_permission->can_download : 1, 1); ?> /> <?php esc_html_e('Descarga', 'shared-docs-manager'); ?></label>
+                                <label><input type="checkbox" name="can_edit_excel" value="1" <?php checked($editing_file_permission ? (int) $editing_file_permission->can_edit_excel : 0, 1); ?> /> <?php esc_html_e('Edición Excel', 'shared-docs-manager'); ?></label>
+                            </fieldset>
+
+                            <label for="shared-file-permission-expires"><?php esc_html_e('Fecha límite (opcional)', 'shared-docs-manager'); ?></label>
+                            <input id="shared-file-permission-expires" type="datetime-local" name="expires_at" value="<?php echo esc_attr($this->format_datetime_local($editing_file_permission ? $editing_file_permission->expires_at : '')); ?>" />
+
+                            <?php submit_button($editing_file_permission ? __('Actualizar permiso de archivo', 'shared-docs-manager') : __('Guardar permiso de archivo', 'shared-docs-manager')); ?>
+                        </form>
+                    </section>
+                </div>
+
+                <section class="shared-docs-card shared-docs-card-full">
+                    <h3><?php esc_html_e('Asignación masiva de acceso', 'shared-docs-manager'); ?></h3>
+                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                        <input type="hidden" name="action" value="shared_docs_bulk_save_permissions" />
+                        <input type="hidden" name="return_page" value="shared-docs-permissions" />
+                        <?php wp_nonce_field('shared_docs_bulk_save_permissions'); ?>
+
+                        <div class="shared-docs-switch-row">
+                            <span><?php esc_html_e('Seleccionar a todos', 'shared-docs-manager'); ?></span>
+                            <label class="shared-docs-switch" for="shared-select-all-users">
+                                <input id="shared-select-all-users" type="checkbox" />
+                                <span class="shared-docs-slider"></span>
+                            </label>
+                        </div>
+
+                        <div class="shared-docs-user-checklist" data-user-checklist>
+                            <?php foreach ($assignable_users as $user) : ?>
+                                <label class="shared-docs-user-checklist__item">
+                                    <input type="checkbox" name="user_ids[]" value="<?php echo (int) $user->ID; ?>" class="shared-docs-user-checkbox" />
+                                    <span><?php echo esc_html($user->display_name . ' (' . $user->user_email . ')'); ?></span>
+                                </label>
+                            <?php endforeach; ?>
+                        </div>
+
+                        <label for="shared-bulk-folders"><?php esc_html_e('Carpetas (opcional, múltiple)', 'shared-docs-manager'); ?></label>
+                        <select id="shared-bulk-folders" name="folder_ids[]" multiple size="8">
+                            <?php echo $this->render_folder_options($folders); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+                        </select>
+
+                        <label for="shared-bulk-files"><?php esc_html_e('Archivos (opcional, múltiple)', 'shared-docs-manager'); ?></label>
+                        <select id="shared-bulk-files" name="file_ids[]" multiple size="10">
+                            <?php echo $this->render_file_options($files); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+                        </select>
+
+                        <fieldset class="shared-docs-checkboxes">
+                            <legend><?php esc_html_e('Permisos a aplicar', 'shared-docs-manager'); ?></legend>
+                            <label><input type="checkbox" name="can_read" value="1" checked /> <?php esc_html_e('Lectura', 'shared-docs-manager'); ?></label>
+                            <label><input type="checkbox" name="can_download" value="1" checked /> <?php esc_html_e('Descarga', 'shared-docs-manager'); ?></label>
+                            <label><input type="checkbox" name="can_edit_excel" value="1" /> <?php esc_html_e('Edición Excel', 'shared-docs-manager'); ?></label>
+                        </fieldset>
+
+                        <label for="shared-bulk-expires"><?php esc_html_e('Fecha límite común (opcional)', 'shared-docs-manager'); ?></label>
+                        <input id="shared-bulk-expires" type="datetime-local" name="expires_at" value="" />
+
+                        <?php submit_button(__('Aplicar permisos en bloque', 'shared-docs-manager')); ?>
+                    </form>
+                    <p class="description"><?php esc_html_e('En este listado solo aparecen usuarios con rol cie_user o cie_user_new.', 'shared-docs-manager'); ?></p>
+                </section>
+            </section>
+
+            <section class="shared-docs-card shared-docs-card-full">
+                <h2><?php esc_html_e('Usuarios y permisos actuales', 'shared-docs-manager'); ?></h2>
+
+                <h3><?php esc_html_e('Permisos por carpeta', 'shared-docs-manager'); ?></h3>
+                <?php if (empty($folder_permissions)) : ?>
+                    <p><?php esc_html_e('No hay permisos por carpeta asignados.', 'shared-docs-manager'); ?></p>
+                <?php else : ?>
+                    <table class="widefat striped">
+                        <thead>
+                        <tr>
+                            <th><?php esc_html_e('Usuario', 'shared-docs-manager'); ?></th>
+                            <th><?php esc_html_e('Carpeta', 'shared-docs-manager'); ?></th>
+                            <th><?php esc_html_e('Lectura', 'shared-docs-manager'); ?></th>
+                            <th><?php esc_html_e('Descarga', 'shared-docs-manager'); ?></th>
+                            <th><?php esc_html_e('Edición Excel', 'shared-docs-manager'); ?></th>
+                            <th><?php esc_html_e('Expira', 'shared-docs-manager'); ?></th>
+                            <th><?php esc_html_e('Acciones', 'shared-docs-manager'); ?></th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <?php foreach ($folder_permissions as $permission) : ?>
+                            <?php
+                            $edit_link = add_query_arg(
+                                array(
+                                    'page'          => 'shared-docs-permissions',
+                                    'action'        => 'edit_permission',
+                                    'permission_id' => (int) $permission->id,
+                                ),
+                                admin_url('admin.php')
+                            );
+                            $delete_link = wp_nonce_url(
+                                add_query_arg(
+                                    array(
+                                        'action'        => 'shared_docs_delete_permission',
+                                        'permission_id' => (int) $permission->id,
+                                        'return_page'   => 'shared-docs-permissions',
+                                    ),
+                                    admin_url('admin-post.php')
+                                ),
+                                'shared_docs_delete_permission_' . (int) $permission->id
+                            );
+                            $expires_label = empty($permission->expires_at)
+                                ? __('Sin límite', 'shared-docs-manager')
+                                : wp_date(get_option('date_format') . ' ' . get_option('time_format'), strtotime($permission->expires_at));
+                            ?>
+                            <tr>
+                                <td><?php echo esc_html($permission->display_name . ' (' . $permission->user_email . ')'); ?></td>
+                                <td><?php echo esc_html($permission->folder_name ? $permission->folder_name : __('(Carpeta eliminada)', 'shared-docs-manager')); ?></td>
+                                <td><?php echo ! empty($permission->can_read) ? '✔' : '—'; ?></td>
+                                <td><?php echo ! empty($permission->can_download) ? '✔' : '—'; ?></td>
+                                <td><?php echo ! empty($permission->can_edit_excel) ? '✔' : '—'; ?></td>
+                                <td><?php echo esc_html($expires_label); ?></td>
+                                <td>
+                                    <a href="<?php echo esc_url($edit_link); ?>"><?php esc_html_e('Editar', 'shared-docs-manager'); ?></a>
+                                    |
+                                    <a href="<?php echo esc_url($delete_link); ?>" onclick="return confirm('<?php echo esc_js(__('¿Revocar este permiso?', 'shared-docs-manager')); ?>');"><?php esc_html_e('Revocar', 'shared-docs-manager'); ?></a>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                <?php endif; ?>
+
+                <h3 style="margin-top:20px;"><?php esc_html_e('Permisos por archivo', 'shared-docs-manager'); ?></h3>
+                <?php if (empty($file_permissions)) : ?>
+                    <p><?php esc_html_e('No hay permisos por archivo asignados.', 'shared-docs-manager'); ?></p>
+                <?php else : ?>
+                    <table class="widefat striped">
+                        <thead>
+                        <tr>
+                            <th><?php esc_html_e('Usuario', 'shared-docs-manager'); ?></th>
+                            <th><?php esc_html_e('Archivo', 'shared-docs-manager'); ?></th>
+                            <th><?php esc_html_e('Carpeta', 'shared-docs-manager'); ?></th>
+                            <th><?php esc_html_e('Lectura', 'shared-docs-manager'); ?></th>
+                            <th><?php esc_html_e('Descarga', 'shared-docs-manager'); ?></th>
+                            <th><?php esc_html_e('Edición Excel', 'shared-docs-manager'); ?></th>
+                            <th><?php esc_html_e('Expira', 'shared-docs-manager'); ?></th>
+                            <th><?php esc_html_e('Acciones', 'shared-docs-manager'); ?></th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <?php foreach ($file_permissions as $permission) : ?>
+                            <?php
+                            $folder_id = (int) get_post_meta((int) $permission->file_id, 'shared_folder_id', true);
+                            $folder_name = $folder_id > 0 ? get_the_title($folder_id) : __('(Sin carpeta)', 'shared-docs-manager');
+                            $file_name = $permission->file_name ? $permission->file_name : __('(Archivo eliminado)', 'shared-docs-manager');
+
+                            $edit_link = add_query_arg(
+                                array(
+                                    'page'          => 'shared-docs-permissions',
+                                    'action'        => 'edit_file_permission',
+                                    'permission_id' => (int) $permission->id,
+                                ),
+                                admin_url('admin.php')
+                            );
+                            $delete_link = wp_nonce_url(
+                                add_query_arg(
+                                    array(
+                                        'action'        => 'shared_docs_delete_file_permission',
+                                        'permission_id' => (int) $permission->id,
+                                        'return_page'   => 'shared-docs-permissions',
+                                    ),
+                                    admin_url('admin-post.php')
+                                ),
+                                'shared_docs_delete_file_permission_' . (int) $permission->id
+                            );
+                            $expires_label = empty($permission->expires_at)
+                                ? __('Sin límite', 'shared-docs-manager')
+                                : wp_date(get_option('date_format') . ' ' . get_option('time_format'), strtotime($permission->expires_at));
+                            ?>
+                            <tr>
+                                <td><?php echo esc_html($permission->display_name . ' (' . $permission->user_email . ')'); ?></td>
+                                <td><?php echo esc_html($file_name); ?></td>
+                                <td><?php echo esc_html($folder_name); ?></td>
+                                <td><?php echo ! empty($permission->can_read) ? '✔' : '—'; ?></td>
+                                <td><?php echo ! empty($permission->can_download) ? '✔' : '—'; ?></td>
+                                <td><?php echo ! empty($permission->can_edit_excel) ? '✔' : '—'; ?></td>
+                                <td><?php echo esc_html($expires_label); ?></td>
+                                <td>
+                                    <a href="<?php echo esc_url($edit_link); ?>"><?php esc_html_e('Editar', 'shared-docs-manager'); ?></a>
+                                    |
+                                    <a href="<?php echo esc_url($delete_link); ?>" onclick="return confirm('<?php echo esc_js(__('¿Revocar este permiso de archivo?', 'shared-docs-manager')); ?>');"><?php esc_html_e('Revocar', 'shared-docs-manager'); ?></a>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                <?php endif; ?>
+            </section>
+        </div>
+        <?php
     }
 
     /**
@@ -769,7 +1215,7 @@ class Admin_Controller
         $parent_id = isset($_POST['parent_folder_id']) ? (int) $_POST['parent_folder_id'] : 0;
 
         if ($folder_name === '') {
-            $this->redirect_with_notice('folder_invalid');
+            $this->redirect_with_notice('folder_invalid', array(), 'shared-docs');
         }
 
         if ($parent_id > 0) {
@@ -790,10 +1236,50 @@ class Admin_Controller
         );
 
         if (is_wp_error($inserted)) {
-            $this->redirect_with_notice('folder_error');
+            $this->redirect_with_notice('folder_error', array(), 'shared-docs');
         }
 
-        $this->redirect_with_notice('folder_created');
+        $this->redirect_with_notice('folder_created', array(), 'shared-docs');
+    }
+
+    /**
+     * Handler: renombrar carpeta.
+     *
+     * @return void
+     */
+    public function handle_rename_folder()
+    {
+        $this->deny_if_not_manager();
+
+        $folder_id = isset($_POST['folder_id']) ? (int) $_POST['folder_id'] : 0;
+        if ($folder_id <= 0) {
+            $this->redirect_with_notice('folder_rename_invalid', array(), 'shared-docs');
+        }
+
+        check_admin_referer('shared_docs_rename_folder_' . $folder_id);
+        $folder_name = isset($_POST['folder_name']) ? sanitize_text_field(wp_unslash($_POST['folder_name'])) : '';
+        if ($folder_name === '') {
+            $this->redirect_with_notice('folder_rename_invalid', array(), 'shared-docs');
+        }
+
+        $folder = get_post($folder_id);
+        if (! $folder || $folder->post_type !== 'shared_folder') {
+            $this->redirect_with_notice('folder_rename_invalid', array(), 'shared-docs');
+        }
+
+        $updated = wp_update_post(
+            array(
+                'ID'         => $folder_id,
+                'post_title' => $folder_name,
+            ),
+            true
+        );
+
+        if (is_wp_error($updated)) {
+            $this->redirect_with_notice('folder_rename_error', array(), 'shared-docs');
+        }
+
+        $this->redirect_with_notice('folder_renamed', array(), 'shared-docs');
     }
 
     /**
@@ -808,7 +1294,7 @@ class Admin_Controller
 
         $folder_id = isset($_POST['folder_id']) ? (int) $_POST['folder_id'] : 0;
         if ($folder_id <= 0 || empty($_FILES['shared_file_upload'])) {
-            $this->redirect_with_notice('upload_invalid');
+            $this->redirect_with_notice('upload_invalid', array(), 'shared-docs');
         }
 
         $uploaded = $this->file_helper->upload_attachment_to_folder(
@@ -818,10 +1304,87 @@ class Admin_Controller
         );
 
         if (is_wp_error($uploaded)) {
-            $this->redirect_with_notice('upload_error');
+            $this->redirect_with_notice('upload_error', array(), 'shared-docs');
         }
 
-        $this->redirect_with_notice('upload_ok');
+        $this->redirect_with_notice('upload_ok', array(), 'shared-docs');
+    }
+
+    /**
+     * Handler: mover carpeta o archivo a otra carpeta.
+     *
+     * @return void
+     */
+    public function handle_move_item()
+    {
+        $this->deny_if_not_manager();
+        check_admin_referer('shared_docs_move_item');
+
+        $item_type = isset($_POST['item_type']) ? sanitize_key(wp_unslash($_POST['item_type'])) : '';
+        $item_id = isset($_POST['item_id']) ? (int) $_POST['item_id'] : 0;
+        $target_folder_id = isset($_POST['target_folder_id']) ? (int) $_POST['target_folder_id'] : 0;
+
+        if ($item_id <= 0 || ! in_array($item_type, array('folder', 'file'), true)) {
+            $this->redirect_with_notice('move_invalid', array(), 'shared-docs');
+        }
+
+        if ($item_type === 'folder') {
+            $folder = get_post($item_id);
+            if (! $folder || $folder->post_type !== 'shared_folder') {
+                $this->redirect_with_notice('move_invalid', array(), 'shared-docs');
+            }
+
+            if ($target_folder_id > 0) {
+                $target_folder = get_post($target_folder_id);
+                if (! $target_folder || $target_folder->post_type !== 'shared_folder') {
+                    $this->redirect_with_notice('move_invalid', array(), 'shared-docs');
+                }
+            }
+
+            $invalid_targets = $this->get_descendant_folder_ids($item_id);
+            if (in_array($target_folder_id, $invalid_targets, true)) {
+                $this->redirect_with_notice('move_invalid_target', array(), 'shared-docs');
+            }
+
+            $updated = wp_update_post(
+                array(
+                    'ID'          => $item_id,
+                    'post_parent' => $target_folder_id,
+                ),
+                true
+            );
+
+            if (is_wp_error($updated)) {
+                $this->redirect_with_notice('move_error', array(), 'shared-docs');
+            }
+
+            $this->redirect_with_notice('move_ok', array(), 'shared-docs');
+        }
+
+        // Mover archivo.
+        $file = get_post($item_id);
+        if (! $file || $file->post_type !== 'attachment') {
+            $this->redirect_with_notice('move_invalid', array(), 'shared-docs');
+        }
+
+        if ($target_folder_id <= 0) {
+            $this->redirect_with_notice('move_invalid_target', array(), 'shared-docs');
+        }
+
+        $target_folder = get_post($target_folder_id);
+        if (! $target_folder || $target_folder->post_type !== 'shared_folder') {
+            $this->redirect_with_notice('move_invalid_target', array(), 'shared-docs');
+        }
+
+        update_post_meta($item_id, 'shared_folder_id', $target_folder_id);
+        wp_update_post(
+            array(
+                'ID'          => $item_id,
+                'post_parent' => $target_folder_id,
+            )
+        );
+
+        $this->redirect_with_notice('move_ok', array(), 'shared-docs');
     }
 
     /**
@@ -835,14 +1398,14 @@ class Admin_Controller
 
         $folder_id = isset($_GET['folder_id']) ? (int) $_GET['folder_id'] : 0;
         if ($folder_id <= 0) {
-            $this->redirect_with_notice('folder_delete_invalid');
+            $this->redirect_with_notice('folder_delete_invalid', array(), 'shared-docs');
         }
 
         check_admin_referer('shared_docs_delete_folder_' . $folder_id);
 
         $folder = get_post($folder_id);
         if (! $folder || $folder->post_type !== 'shared_folder') {
-            $this->redirect_with_notice('folder_delete_invalid');
+            $this->redirect_with_notice('folder_delete_invalid', array(), 'shared-docs');
         }
 
         $folder_ids = $this->get_descendant_folder_ids($folder_id);
@@ -886,7 +1449,7 @@ class Admin_Controller
             }
         }
 
-        $this->redirect_with_notice($has_error ? 'folder_delete_error' : 'folder_deleted');
+        $this->redirect_with_notice($has_error ? 'folder_delete_error' : 'folder_deleted', array(), 'shared-docs');
     }
 
     /**
@@ -900,20 +1463,20 @@ class Admin_Controller
 
         $file_id = isset($_GET['file_id']) ? (int) $_GET['file_id'] : 0;
         if ($file_id <= 0) {
-            $this->redirect_with_notice('file_delete_invalid');
+            $this->redirect_with_notice('file_delete_invalid', array(), 'shared-docs');
         }
 
         check_admin_referer('shared_docs_delete_file_' . $file_id);
 
         $file_post = get_post($file_id);
         if (! $file_post || $file_post->post_type !== 'attachment') {
-            $this->redirect_with_notice('file_delete_invalid');
+            $this->redirect_with_notice('file_delete_invalid', array(), 'shared-docs');
         }
 
         $this->file_permission_repository->delete_permissions_by_file_ids(array($file_id));
         $deleted = wp_delete_attachment($file_id, true);
 
-        $this->redirect_with_notice($deleted === false ? 'file_delete_error' : 'file_deleted');
+        $this->redirect_with_notice($deleted === false ? 'file_delete_error' : 'file_deleted', array(), 'shared-docs');
     }
 
     /**
@@ -1176,11 +1739,35 @@ class Admin_Controller
      *
      * @return void
      */
-    private function redirect_with_notice($notice_code, $extra = array())
+    private function redirect_with_notice($notice_code, $extra = array(), $default_page = 'shared-docs-permissions')
     {
-        $args = array_merge(array('page' => 'shared-docs', 'sd_notice' => $notice_code), $extra);
+        $args = array_merge(
+            array(
+                'page'      => $this->resolve_return_page($default_page),
+                'sd_notice' => $notice_code,
+            ),
+            $extra
+        );
         wp_safe_redirect(add_query_arg($args, admin_url('admin.php')));
         exit;
+    }
+
+    /**
+     * Resuelve la página de retorno permitida.
+     *
+     * @param string $default_page Página por defecto.
+     *
+     * @return string
+     */
+    private function resolve_return_page($default_page = 'shared-docs-permissions')
+    {
+        $allowed_pages = array('shared-docs', 'shared-docs-permissions');
+        $request_page = isset($_REQUEST['return_page']) ? sanitize_key(wp_unslash($_REQUEST['return_page'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+        if ($request_page !== '' && in_array($request_page, $allowed_pages, true)) {
+            return $request_page;
+        }
+
+        return in_array($default_page, $allowed_pages, true) ? $default_page : 'shared-docs-permissions';
     }
 
     /**
@@ -1196,6 +1783,9 @@ class Admin_Controller
             'folder_created'    => __('Carpeta creada correctamente.', 'shared-docs-manager'),
             'folder_invalid'    => __('Nombre de carpeta inválido.', 'shared-docs-manager'),
             'folder_error'      => __('No se pudo crear la carpeta.', 'shared-docs-manager'),
+            'folder_renamed'    => __('Nombre de carpeta actualizado correctamente.', 'shared-docs-manager'),
+            'folder_rename_invalid' => __('No se pudo renombrar la carpeta: datos inválidos.', 'shared-docs-manager'),
+            'folder_rename_error'   => __('No se pudo actualizar el nombre de la carpeta.', 'shared-docs-manager'),
             'folder_deleted'    => __('Carpeta eliminada correctamente.', 'shared-docs-manager'),
             'folder_delete_error' => __('La carpeta se eliminó parcialmente o hubo errores al borrar su contenido.', 'shared-docs-manager'),
             'folder_delete_invalid' => __('No se pudo identificar la carpeta a eliminar.', 'shared-docs-manager'),
@@ -1205,6 +1795,10 @@ class Admin_Controller
             'file_deleted'      => __('Archivo eliminado correctamente.', 'shared-docs-manager'),
             'file_delete_error' => __('No se pudo eliminar el archivo.', 'shared-docs-manager'),
             'file_delete_invalid' => __('No se pudo identificar el archivo a eliminar.', 'shared-docs-manager'),
+            'move_ok'           => __('Elemento movido correctamente.', 'shared-docs-manager'),
+            'move_error'        => __('No se pudo mover el elemento.', 'shared-docs-manager'),
+            'move_invalid'      => __('No se pudo mover el elemento: datos inválidos.', 'shared-docs-manager'),
+            'move_invalid_target' => __('Destino inválido para mover el elemento.', 'shared-docs-manager'),
             'permission_saved'  => __('Permiso guardado correctamente.', 'shared-docs-manager'),
             'permission_deleted'=> __('Permiso revocado correctamente.', 'shared-docs-manager'),
             'permission_invalid'=> __('Datos de permiso inválidos.', 'shared-docs-manager'),
@@ -1390,39 +1984,58 @@ class Admin_Controller
             }
         }
 
-        $tree = $this->render_folder_tree_recursive(0, $folder_children, $files_map);
-        $html = '';
+        ob_start();
+
+        $tree = $this->render_folder_tree_recursive(0, $folder_children, $files_map, 0);
         if ($tree !== '') {
-            $html .= '<ul class="shared-docs-tree">' . $tree . '</ul>';
+            echo '<div class="shared-docs-tree-wrap"><ul class="shared-docs-tree">';
+            echo $tree; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+            echo '</ul></div>';
         }
 
         if (! empty($orphan_files)) {
-            $html .= '<h4>' . esc_html__('Archivos sin carpeta asignada', 'shared-docs-manager') . '</h4>';
-            $html .= '<ul class="shared-docs-tree shared-docs-tree-orphans">';
+            echo '<h4>' . esc_html__('Archivos sin carpeta asignada', 'shared-docs-manager') . '</h4>';
+            echo '<ul class="shared-docs-tree shared-docs-tree-orphans">';
             foreach ($orphan_files as $file) {
                 $file_id = (int) $file->ID;
                 $delete_link = wp_nonce_url(
                     add_query_arg(
                         array(
-                            'action'  => 'shared_docs_delete_file',
-                            'file_id' => $file_id,
+                            'action'      => 'shared_docs_delete_file',
+                            'file_id'     => $file_id,
+                            'return_page' => 'shared-docs',
                         ),
                         admin_url('admin-post.php')
                     ),
                     'shared_docs_delete_file_' . $file_id
                 );
-
-                $html .= '<li class="shared-docs-tree__node">';
-                $html .= '<div class="shared-docs-tree__item shared-docs-tree__item--file">';
-                $html .= '<span class="shared-docs-tree__icon">📄</span>';
-                $html .= '<span class="shared-docs-tree__label">' . esc_html($file->post_title) . '</span>';
-                $html .= '<a class="shared-docs-tree__delete" href="' . esc_url($delete_link) . '" onclick="return confirm(\'' . esc_js(__('¿Eliminar este archivo?', 'shared-docs-manager')) . '\');">' . esc_html__('Borrar', 'shared-docs-manager') . '</a>';
-                $html .= '</div></li>';
+                ?>
+                <li class="shared-docs-tree__node">
+                    <div class="shared-docs-tree__item shared-docs-tree__item--file">
+                        <span class="shared-docs-tree__icon">📄</span>
+                        <span class="shared-docs-tree__label"><?php echo esc_html($file->post_title); ?></span>
+                        <button
+                            type="button"
+                            class="button button-small shared-docs-open-move-modal"
+                            data-item-type="file"
+                            data-item-id="<?php echo (int) $file_id; ?>"
+                            data-item-label="<?php echo esc_attr($file->post_title); ?>"
+                            data-current-folder="0"
+                            data-invalid-targets=""
+                        >
+                            <?php esc_html_e('Mover a...', 'shared-docs-manager'); ?>
+                        </button>
+                        <a class="shared-docs-tree__delete" href="<?php echo esc_url($delete_link); ?>" onclick="return confirm('<?php echo esc_js(__('¿Eliminar este archivo?', 'shared-docs-manager')); ?>');">
+                            <?php esc_html_e('Borrar', 'shared-docs-manager'); ?>
+                        </a>
+                    </div>
+                </li>
+                <?php
             }
-            $html .= '</ul>';
+            echo '</ul>';
         }
 
-        return $html;
+        return (string) ob_get_clean();
     }
 
     /**
@@ -1434,7 +2047,7 @@ class Admin_Controller
      *
      * @return string
      */
-    private function render_folder_tree_recursive($parent_id, $folder_children, $files_map)
+    private function render_folder_tree_recursive($parent_id, $folder_children, $files_map, $depth = 0)
     {
         $parent_id = (int) $parent_id;
         if (empty($folder_children[$parent_id])) {
@@ -1449,16 +2062,32 @@ class Admin_Controller
                     array(
                         'action'    => 'shared_docs_delete_folder',
                         'folder_id' => $folder_id,
+                        'return_page' => 'shared-docs',
                     ),
                     admin_url('admin-post.php')
                 ),
                 'shared_docs_delete_folder_' . $folder_id
             );
 
+            $invalid_targets = implode(',', $this->get_descendant_folder_ids($folder_id));
+            $rename_nonce = wp_create_nonce('shared_docs_rename_folder_' . $folder_id);
+
             $html .= '<li class="shared-docs-tree__node">';
-            $html .= '<div class="shared-docs-tree__item shared-docs-tree__item--folder">';
+            $html .= '<details class="shared-docs-accordion" ' . ($depth === 0 ? 'open' : '') . '>';
+            $html .= '<summary class="shared-docs-tree__item shared-docs-tree__item--folder">';
             $html .= '<span class="shared-docs-tree__icon">📁</span>';
             $html .= '<span class="shared-docs-tree__label">' . esc_html($folder->post_title) . '</span>';
+            $html .= '</summary>';
+            $html .= '<div class="shared-docs-tree__controls">';
+            $html .= '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="shared-docs-inline-form">';
+            $html .= '<input type="hidden" name="action" value="shared_docs_rename_folder" />';
+            $html .= '<input type="hidden" name="return_page" value="shared-docs" />';
+            $html .= '<input type="hidden" name="folder_id" value="' . (int) $folder_id . '" />';
+            $html .= '<input type="hidden" name="_wpnonce" value="' . esc_attr($rename_nonce) . '" />';
+            $html .= '<input type="text" name="folder_name" value="' . esc_attr($folder->post_title) . '" />';
+            $html .= '<button type="submit" class="button button-small">' . esc_html__('Guardar nombre', 'shared-docs-manager') . '</button>';
+            $html .= '</form>';
+            $html .= '<button type="button" class="button button-small shared-docs-open-move-modal" data-item-type="folder" data-item-id="' . (int) $folder_id . '" data-item-label="' . esc_attr($folder->post_title) . '" data-current-folder="' . (int) $folder->post_parent . '" data-invalid-targets="' . esc_attr($invalid_targets) . '">' . esc_html__('Mover a...', 'shared-docs-manager') . '</button>';
             $html .= '<a class="shared-docs-tree__delete" href="' . esc_url($delete_folder_link) . '" onclick="return confirm(\'' . esc_js(__('¿Eliminar esta carpeta y todo su contenido?', 'shared-docs-manager')) . '\');">' . esc_html__('Borrar carpeta', 'shared-docs-manager') . '</a>';
             $html .= '</div>';
 
@@ -1471,6 +2100,7 @@ class Admin_Controller
                             array(
                                 'action'  => 'shared_docs_delete_file',
                                 'file_id' => $file_id,
+                                'return_page' => 'shared-docs',
                             ),
                             admin_url('admin-post.php')
                         ),
@@ -1481,18 +2111,20 @@ class Admin_Controller
                     $child_html .= '<div class="shared-docs-tree__item shared-docs-tree__item--file">';
                     $child_html .= '<span class="shared-docs-tree__icon">📄</span>';
                     $child_html .= '<span class="shared-docs-tree__label">' . esc_html($file->post_title) . '</span>';
+                    $child_html .= '<button type="button" class="button button-small shared-docs-open-move-modal" data-item-type="file" data-item-id="' . (int) $file_id . '" data-item-label="' . esc_attr($file->post_title) . '" data-current-folder="' . (int) $folder_id . '" data-invalid-targets="">' . esc_html__('Mover a...', 'shared-docs-manager') . '</button>';
                     $child_html .= '<a class="shared-docs-tree__delete" href="' . esc_url($delete_file_link) . '" onclick="return confirm(\'' . esc_js(__('¿Eliminar este archivo?', 'shared-docs-manager')) . '\');">' . esc_html__('Borrar', 'shared-docs-manager') . '</a>';
                     $child_html .= '</div>';
                     $child_html .= '</li>';
                 }
             }
 
-            $child_html .= $this->render_folder_tree_recursive($folder_id, $folder_children, $files_map);
+            $child_html .= $this->render_folder_tree_recursive($folder_id, $folder_children, $files_map, $depth + 1);
 
             if ($child_html !== '') {
                 $html .= '<ul class="shared-docs-tree__children">' . $child_html . '</ul>';
             }
 
+            $html .= '</details>';
             $html .= '</li>';
         }
 
@@ -1532,6 +2164,147 @@ class Admin_Controller
         $ids[] = $folder_id;
 
         return array_values(array_unique(array_map('intval', $ids)));
+    }
+
+    /**
+     * Renderiza modal "Mover a".
+     *
+     * @param array $folders Carpetas disponibles.
+     *
+     * @return string
+     */
+    private function render_move_modal($folders)
+    {
+        ob_start();
+        ?>
+        <div class="shared-docs-modal-admin" data-shared-move-modal hidden>
+            <div class="shared-docs-modal-admin__backdrop" data-action="close-move-modal"></div>
+            <div class="shared-docs-modal-admin__dialog" role="dialog" aria-modal="true">
+                <header class="shared-docs-modal-admin__header">
+                    <h3><?php esc_html_e('Mover elemento', 'shared-docs-manager'); ?></h3>
+                    <button type="button" class="button button-link-delete" data-action="close-move-modal">&times;</button>
+                </header>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                    <input type="hidden" name="action" value="shared_docs_move_item" />
+                    <input type="hidden" name="return_page" value="shared-docs" />
+                    <?php wp_nonce_field('shared_docs_move_item'); ?>
+                    <input type="hidden" name="item_type" value="" data-move-item-type />
+                    <input type="hidden" name="item_id" value="" data-move-item-id />
+
+                    <p class="description" data-move-item-label></p>
+                    <label for="shared-move-target-folder"><?php esc_html_e('Mover a carpeta', 'shared-docs-manager'); ?></label>
+                    <select id="shared-move-target-folder" name="target_folder_id" data-move-target-folder required>
+                        <option value="0"><?php esc_html_e('— Carpeta raíz —', 'shared-docs-manager'); ?></option>
+                        <?php echo $this->render_folder_options($folders); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+                    </select>
+
+                    <div class="shared-docs-modal-admin__footer">
+                        <button type="button" class="button" data-action="close-move-modal"><?php esc_html_e('Cancelar', 'shared-docs-manager'); ?></button>
+                        <button type="submit" class="button button-primary"><?php esc_html_e('Mover', 'shared-docs-manager'); ?></button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <?php
+        return (string) ob_get_clean();
+    }
+
+    /**
+     * Devuelve carpetas ordenadas alfabéticamente.
+     *
+     * @return array
+     */
+    private function get_all_folders()
+    {
+        return get_posts(
+            array(
+                'post_type'      => 'shared_folder',
+                'post_status'    => array('publish', 'private'),
+                'posts_per_page' => -1,
+                'orderby'        => 'title',
+                'order'          => 'ASC',
+            )
+        );
+    }
+
+    /**
+     * Devuelve archivos cargados en gestor.
+     *
+     * @return array
+     */
+    private function get_all_files()
+    {
+        return get_posts(
+            array(
+                'post_type'      => 'attachment',
+                'post_status'    => array('inherit', 'private'),
+                'posts_per_page' => -1,
+                'orderby'        => 'title',
+                'order'          => 'ASC',
+                'meta_query'     => array(
+                    array(
+                        'key'     => 'shared_folder_id',
+                        'compare' => 'EXISTS',
+                    ),
+                ),
+            )
+        );
+    }
+
+    /**
+     * Usuarios permitidos para asignación de accesos.
+     *
+     * @return array
+     */
+    private function get_assignable_users()
+    {
+        return get_users(
+            array(
+                'role__in' => array('cie_user', 'cie_user_new'),
+                'orderby'  => 'display_name',
+                'order'    => 'ASC',
+                'number'   => 9999,
+            )
+        );
+    }
+
+    /**
+     * Garantiza que usuarios seleccionados en edición estén en el listado.
+     *
+     * @param array $users    Listado base.
+     * @param array $user_ids IDs a incluir.
+     *
+     * @return array
+     */
+    private function ensure_selected_users_present($users, $user_ids)
+    {
+        $users = (array) $users;
+        $lookup = array();
+        foreach ($users as $user) {
+            $lookup[(int) $user->ID] = true;
+        }
+
+        foreach ((array) $user_ids as $user_id) {
+            $user_id = (int) $user_id;
+            if ($user_id <= 0 || isset($lookup[$user_id])) {
+                continue;
+            }
+
+            $user = get_userdata($user_id);
+            if ($user) {
+                $users[] = $user;
+                $lookup[$user_id] = true;
+            }
+        }
+
+        usort(
+            $users,
+            static function ($a, $b) {
+                return strcasecmp((string) $a->display_name, (string) $b->display_name);
+            }
+        );
+
+        return $users;
     }
 
     /**

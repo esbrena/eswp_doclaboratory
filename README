@@ -32,6 +32,13 @@ Características principales
   - permisos por archivo.
 - Visualización en árbol jerárquico de carpetas/archivos en admin.
 - Borrado de carpetas (recursivo) y archivos desde el panel de administración.
+- Renombrado de carpetas.
+- Movimiento de carpetas/archivos a otra carpeta mediante modal "Mover a".
+- Nuevo menú de administración dividido:
+  - **Árbol de documentos** (gestión estructura y archivos)
+  - **Permisos de usuarios** (asignación y revisión de permisos)
+- Asignación masiva con checklist de usuarios y switch "Seleccionar a todos".
+- En listado masivo se muestran usuarios con roles `cie_user` y `cie_user_new`.
 - Shortcode frontend:
   - `[shared_document_manager]` (navegación completa tipo Drive)
   - `[shared_document_drive]` (alias de navegación completa)
