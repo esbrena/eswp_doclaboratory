@@ -1031,17 +1031,25 @@
         multiActions.hidden = !(selected.total > 1);
       }
 
-      if (singleOpenButton) {
-        singleOpenButton.hidden = !singleItem || singleItem.type !== "file";
-      }
-      if (singleDownloadButton) {
-        singleDownloadButton.hidden = !singleItem || singleItem.type !== "file";
-      }
-      if (singleRenameButton) {
-        singleRenameButton.hidden = !singleItem || singleItem.type !== "folder";
-      }
-      if (singleHistoryButton) {
-        singleHistoryButton.hidden = !singleItem || singleItem.type !== "file" || !singleItem.isExcel;
+      if (singleItem) {
+        if (singleOpenButton) singleOpenButton.style.display = "none";
+        if (singleDownloadButton) singleDownloadButton.style.display = "none";
+        if (singleHistoryButton) singleHistoryButton.style.display = "none";
+        if (singleRenameButton) singleRenameButton.style.display = "none";
+
+        const isFile = singleItem.type === "file";
+        const isFolder = singleItem.type === "folder";
+
+        
+        if (isFile) { // FILE
+          if (singleOpenButton) singleOpenButton.style.display = "inline-block";
+          if (singleDownloadButton) singleDownloadButton.style.display = "inline-block";
+          if (isFile && singleItem.isExcel) {
+            if (singleHistoryButton) singleHistoryButton.style.display = "inline-block";
+          }
+        } else { // FOLDER
+          if (singleRenameButton) singleRenameButton.style.display = "inline-block";
+        }
       }
     };
 
