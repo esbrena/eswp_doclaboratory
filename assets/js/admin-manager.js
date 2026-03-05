@@ -113,28 +113,48 @@
     if (!button) {
       return;
     }
-    const isInput = button.tagName === "INPUT";
-    const readLabel = () => (isInput ? button.value : button.textContent || "");
+    const tag = (button.tagName || "").toUpperCase();
+    const isInput = tag === "INPUT";
+    const isButton = tag === "BUTTON";
+    const readLabel = () => (isInput ? button.value || "" : button.dataset.originalLabel || button.textContent || "");
     const writeLabel = (value) => {
       if (isInput) {
         button.value = value;
+        return;
+      }
+      if (isButton) {
+        button.innerHTML = "";
+        const labelNode = document.createElement("span");
+        labelNode.className = "shared-docs-btn-label";
+        labelNode.textContent = value;
+        button.appendChild(labelNode);
       } else {
         button.textContent = value;
       }
     };
     if (loading) {
+      if (button.dataset.loading === "1") {
+        return;
+      }
       if (!button.dataset.originalLabel) {
         button.dataset.originalLabel = readLabel();
       }
+      button.dataset.loading = "1";
       button.disabled = true;
       button.classList.add("is-loading");
       button.setAttribute("aria-busy", "true");
-      if (loadingText) {
-        writeLabel(loadingText);
+      const label = loadingText || button.dataset.originalLabel;
+      writeLabel(label);
+      if (isButton) {
+        const spinner = document.createElement("span");
+        spinner.className = "shared-docs-btn-spinner";
+        spinner.setAttribute("aria-hidden", "true");
+        button.appendChild(spinner);
       }
       return;
     }
 
+    button.dataset.loading = "0";
     button.disabled = false;
     button.classList.remove("is-loading");
     button.removeAttribute("aria-busy");
@@ -170,6 +190,26 @@
   };
 
   const setupFormSubmitLoading = () => {
+    const submitInputs = Array.from(
+      document.querySelectorAll('.shared-docs-admin-wrap input[type="submit"]')
+    );
+    submitInputs.forEach((input) => {
+      const button = document.createElement("button");
+      button.type = "submit";
+      button.className = input.className || "button";
+      button.textContent = input.value || "Guardar";
+      if (input.name) button.name = input.name;
+      if (input.id) button.id = input.id;
+      if (input.disabled) button.disabled = true;
+      if (input.formNoValidate) button.formNoValidate = true;
+      Array.from(input.attributes).forEach((attr) => {
+        if (attr.name.indexOf("data-") === 0) {
+          button.setAttribute(attr.name, attr.value);
+        }
+      });
+      input.parentNode.replaceChild(button, input);
+    });
+
     const forms = Array.from(document.querySelectorAll(".shared-docs-admin-wrap form"));
     forms.forEach((form) => {
       form.addEventListener("submit", (event) => {

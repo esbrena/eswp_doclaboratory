@@ -158,23 +158,54 @@
 
     const setButtonLoading = (button, loading, loadingText) => {
       if (!button) return;
+      const tag = (button.tagName || "").toUpperCase();
+      const isInput = tag === "INPUT";
+      const isButton = tag === "BUTTON";
       if (loading) {
-        if (!button.dataset.originalLabel) {
-          button.dataset.originalLabel = button.textContent || "";
+        if (button.dataset.loading === "1") {
+          return;
         }
+        if (!button.dataset.originalLabel) {
+          button.dataset.originalLabel = isInput ? button.value || "" : button.textContent || "";
+        }
+        button.dataset.loading = "1";
         button.disabled = true;
         button.classList.add("is-loading");
         button.setAttribute("aria-busy", "true");
-        if (loadingText) {
-          button.textContent = loadingText;
+        const label = loadingText || button.dataset.originalLabel;
+        if (isInput) {
+          button.value = label;
+        } else if (isButton) {
+          button.innerHTML = "";
+          const labelNode = document.createElement("span");
+          labelNode.className = "shared-docs-btn-label";
+          labelNode.textContent = label;
+          button.appendChild(labelNode);
+          const spinner = document.createElement("span");
+          spinner.className = "shared-docs-btn-spinner";
+          spinner.setAttribute("aria-hidden", "true");
+          button.appendChild(spinner);
+        } else {
+          button.textContent = label;
         }
         return;
       }
+      button.dataset.loading = "0";
       button.disabled = false;
       button.classList.remove("is-loading");
       button.removeAttribute("aria-busy");
       if (button.dataset.originalLabel) {
-        button.textContent = button.dataset.originalLabel;
+        if (isInput) {
+          button.value = button.dataset.originalLabel;
+        } else if (isButton) {
+          button.innerHTML = "";
+          const labelNode = document.createElement("span");
+          labelNode.className = "shared-docs-btn-label";
+          labelNode.textContent = button.dataset.originalLabel;
+          button.appendChild(labelNode);
+        } else {
+          button.textContent = button.dataset.originalLabel;
+        }
       }
     };
 
