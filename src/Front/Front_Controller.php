@@ -146,15 +146,15 @@ class Front_Controller
             </div>
         </div>
 
-        <div id="shared-docs-excel-modal" class="shared-docs-modal" hidden>
+        <div id="shared-docs-excel-modal" class="shared-docs-modal shared-docs-modal--fullscreen" hidden>
             <div class="shared-docs-modal__backdrop" data-action="close-modal"></div>
-            <div class="shared-docs-modal__content" role="dialog" aria-modal="true">
+            <div class="shared-docs-modal__content shared-docs-modal__content--fullscreen" role="dialog" aria-modal="true">
                 <header class="shared-docs-modal__header">
                     <h4 class="shared-docs-modal__title"><?php esc_html_e('Editar Excel', 'shared-docs-manager'); ?></h4>
                     <button type="button" class="shared-docs-modal__close" data-action="close-modal">&times;</button>
                 </header>
                 <div class="shared-docs-modal__body">
-                    <p class="shared-docs-modal__hint"><?php esc_html_e('Haz clic sobre una celda para editarla.', 'shared-docs-manager'); ?></p>
+                    <p class="shared-docs-modal__hint" data-region="excel-hint"><?php esc_html_e('Haz clic sobre una celda para editarla.', 'shared-docs-manager'); ?></p>
                     <div class="shared-docs-excel-table-wrap">
                         <table class="shared-docs-excel-table" data-region="excel-table"></table>
                     </div>
@@ -320,6 +320,7 @@ class Front_Controller
                 'isManager'  => $this->permission_manager->current_user_can_manage(),
                 'messages'   => array(
                     'loading'         => __('Cargando...', 'shared-docs-manager'),
+                        'processing'      => __('Procesando...', 'shared-docs-manager'),
                     'noFolders'       => __('No hay carpetas disponibles.', 'shared-docs-manager'),
                     'noFiles'         => __('No hay archivos en esta carpeta.', 'shared-docs-manager'),
                     'noDirectoryItems'=> __('No hay archivos ni carpetas en el directorio "%s".', 'shared-docs-manager'),
@@ -327,6 +328,8 @@ class Front_Controller
                     'excelLoadError'  => __('No se pudo abrir el archivo Excel.', 'shared-docs-manager'),
                     'excelSaveError'  => __('No se pudo guardar el archivo Excel.', 'shared-docs-manager'),
                     'excelSaveOk'     => __('Cambios guardados correctamente.', 'shared-docs-manager'),
+                        'excelReadOnlyHint' => __('Vista previa en solo lectura. No tienes permisos para editar este Excel.', 'shared-docs-manager'),
+                        'excelEditHint'   => __('Haz clic sobre una celda para editarla.', 'shared-docs-manager'),
                     'requestError'    => __('Error de comunicación con el servidor.', 'shared-docs-manager'),
                     'permissionError' => __('No tienes permisos para esta acción.', 'shared-docs-manager'),
                 ),

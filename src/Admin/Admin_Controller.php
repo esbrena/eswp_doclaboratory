@@ -2329,6 +2329,9 @@ class Admin_Controller
                     'shared_docs_download_file_' . $file_id
                 );
                 $is_excel = $this->is_excel_file_post($file);
+                $can_edit_excel = $is_excel
+                    ? $this->permission_manager->user_can_access_file(get_current_user_id(), $file_id, 'can_edit_excel')
+                    : false;
                 $mime_type = (string) get_post_mime_type($file_id);
                 $file_path = (string) get_attached_file($file_id);
                 $file_name = $file_path !== '' ? basename($file_path) : (string) $file->post_title;
@@ -2347,6 +2350,7 @@ class Admin_Controller
                             data-open-url="<?php echo esc_attr($open_link); ?>"
                             data-download-url="<?php echo esc_attr($download_link); ?>"
                             data-is-excel="<?php echo $is_excel ? '1' : '0'; ?>"
+                            data-can-edit-excel="<?php echo $can_edit_excel ? '1' : '0'; ?>"
                             data-mime-type="<?php echo esc_attr($mime_type); ?>"
                             data-filename="<?php echo esc_attr($file_name); ?>"
                         />
@@ -2397,7 +2401,7 @@ class Admin_Controller
             $html .= '<li class="shared-docs-tree__node">';
             $html .= '<details class="shared-docs-accordion" ' . ($depth === 0 ? 'open' : '') . '>';
             $html .= '<summary class="shared-docs-tree__item shared-docs-tree__item--folder">';
-            $html .= '<input type="checkbox" class="shared-docs-item-checkbox" data-item-type="folder" data-item-id="' . (int) $folder_id . '" data-item-label="' . esc_attr($folder->post_title) . '" data-current-folder="' . (int) $folder->post_parent . '" data-invalid-targets="' . esc_attr($invalid_targets) . '" data-open-url="" data-download-url="" data-is-excel="0" data-mime-type="" data-filename="" />';
+            $html .= '<input type="checkbox" class="shared-docs-item-checkbox" data-item-type="folder" data-item-id="' . (int) $folder_id . '" data-item-label="' . esc_attr($folder->post_title) . '" data-current-folder="' . (int) $folder->post_parent . '" data-invalid-targets="' . esc_attr($invalid_targets) . '" data-open-url="" data-download-url="" data-is-excel="0" data-can-edit-excel="0" data-mime-type="" data-filename="" />';
             $html .= '<span class="shared-docs-tree__icon">' . $this->render_resource_icon_html('folder') . '</span>';
             $html .= '<span class="shared-docs-tree__label">' . esc_html($folder->post_title) . '</span>';
             $html .= '<span class="shared-docs-tree__badge">' . esc_html(sprintf(__('Permisos carpeta: %d · archivos: %d', 'shared-docs-manager'), $folder_users_count, $folder_file_users_count)) . '</span>';
@@ -2430,6 +2434,9 @@ class Admin_Controller
                         'shared_docs_download_file_' . $file_id
                     );
                     $is_excel = $this->is_excel_file_post($file);
+                    $can_edit_excel = $is_excel
+                        ? $this->permission_manager->user_can_access_file(get_current_user_id(), $file_id, 'can_edit_excel')
+                        : false;
                     $mime_type = (string) get_post_mime_type($file_id);
                     $file_path = (string) get_attached_file($file_id);
                     $file_name = $file_path !== '' ? basename($file_path) : (string) $file->post_title;
@@ -2437,7 +2444,7 @@ class Admin_Controller
 
                     $child_html .= '<li class="shared-docs-tree__node">';
                     $child_html .= '<div class="shared-docs-tree__item shared-docs-tree__item--file">';
-                    $child_html .= '<input type="checkbox" class="shared-docs-item-checkbox" data-item-type="file" data-item-id="' . (int) $file_id . '" data-item-label="' . esc_attr($file->post_title) . '" data-current-folder="' . (int) $folder_id . '" data-invalid-targets="" data-open-url="' . esc_attr($open_file_link) . '" data-download-url="' . esc_attr($download_file_link) . '" data-is-excel="' . ($is_excel ? '1' : '0') . '" data-mime-type="' . esc_attr($mime_type) . '" data-filename="' . esc_attr($file_name) . '" />';
+                    $child_html .= '<input type="checkbox" class="shared-docs-item-checkbox" data-item-type="file" data-item-id="' . (int) $file_id . '" data-item-label="' . esc_attr($file->post_title) . '" data-current-folder="' . (int) $folder_id . '" data-invalid-targets="" data-open-url="' . esc_attr($open_file_link) . '" data-download-url="' . esc_attr($download_file_link) . '" data-is-excel="' . ($is_excel ? '1' : '0') . '" data-can-edit-excel="' . ($can_edit_excel ? '1' : '0') . '" data-mime-type="' . esc_attr($mime_type) . '" data-filename="' . esc_attr($file_name) . '" />';
                     $child_html .= '<span class="shared-docs-tree__icon">' . $this->render_resource_icon_html('file', $file) . '</span>';
                     $child_html .= '<span class="shared-docs-tree__label">' . esc_html($file->post_title) . '</span>';
                     $child_html .= '<span class="shared-docs-tree__badge">' . esc_html(sprintf(__('Permisos archivo: %d', 'shared-docs-manager'), $file_users_count)) . '</span>';

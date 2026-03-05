@@ -35,6 +35,7 @@
       openUrl: checkbox.getAttribute("data-open-url") || "",
       downloadUrl: checkbox.getAttribute("data-download-url") || "",
       isExcel: checkbox.getAttribute("data-is-excel") === "1",
+      canEditExcel: checkbox.getAttribute("data-can-edit-excel") === "1",
       mimeType: checkbox.getAttribute("data-mime-type") || "",
       filename: checkbox.getAttribute("data-filename") || "",
     };
@@ -106,6 +107,85 @@
     }
 
     return response.blob();
+  };
+
+  const setButtonLoading = (button, loading, loadingText) => {
+    if (!button) {
+      return;
+    }
+    const isInput = button.tagName === "INPUT";
+    const readLabel = () => (isInput ? button.value : button.textContent || "");
+    const writeLabel = (value) => {
+      if (isInput) {
+        button.value = value;
+      } else {
+        button.textContent = value;
+      }
+    };
+    if (loading) {
+      if (!button.dataset.originalLabel) {
+        button.dataset.originalLabel = readLabel();
+      }
+      button.disabled = true;
+      button.classList.add("is-loading");
+      button.setAttribute("aria-busy", "true");
+      if (loadingText) {
+        writeLabel(loadingText);
+      }
+      return;
+    }
+
+    button.disabled = false;
+    button.classList.remove("is-loading");
+    button.removeAttribute("aria-busy");
+    if (button.dataset.originalLabel) {
+      writeLabel(button.dataset.originalLabel);
+    }
+  };
+
+  const setContainerLoading = (container, message) => {
+    if (!container) {
+      return {
+        stop: () => {},
+      };
+    }
+    container.innerHTML = "";
+    const loading = document.createElement("div");
+    loading.className = "shared-docs-loading";
+    const spinner = document.createElement("span");
+    spinner.className = "shared-docs-loading__spinner";
+    const text = document.createElement("span");
+    text.textContent = message || "Cargando...";
+    loading.appendChild(spinner);
+    loading.appendChild(text);
+    container.appendChild(loading);
+
+    return {
+      stop: () => {
+        if (loading.parentNode === container) {
+          container.removeChild(loading);
+        }
+      },
+    };
+  };
+
+  const setupFormSubmitLoading = () => {
+    const forms = Array.from(document.querySelectorAll(".shared-docs-admin-wrap form"));
+    forms.forEach((form) => {
+      form.addEventListener("submit", (event) => {
+        if (form.dataset.submitting === "1") {
+          event.preventDefault();
+          return;
+        }
+        form.dataset.submitting = "1";
+        const submitButtons = Array.from(
+          form.querySelectorAll('button[type="submit"], input[type="submit"]')
+        );
+        submitButtons.forEach((button) => {
+          setButtonLoading(button, true, messages.processing || "Procesando...");
+        });
+      });
+    });
   };
 
   const setupUserSelectors = () => {
@@ -770,14 +850,20 @@
       item: null,
       sheetName: "",
       bookType: "xlsx",
+      busy: false,
+      excelEditable: false,
       previewObjectUrl: "",
     };
 
     const closeModal = () => {
+      if (state.busy) {
+        return;
+      }
       modal.hidden = true;
       state.item = null;
       state.sheetName = "";
       state.bookType = "xlsx";
+      state.excelEditable = false;
       if (previewWrap) previewWrap.innerHTML = "";
       if (excelTable) excelTable.innerHTML = "";
       if (excelWrap) excelWrap.hidden = true;
@@ -788,92 +874,133 @@
       }
     };
 
-    const loadExcel = async (item) => {
+    const loadExcel = async (item, editable) => {
       if (!window.XLSX) {
         throw new Error(messages.excelLoadError || "No se pudo abrir el archivo Excel.");
       }
-      const blob = await requestBlob(`download/${item.id}`);
-      const buffer = await blob.arrayBuffer();
-      const workbook = window.XLSX.read(buffer, { type: "array" });
-      const sheetName = workbook.SheetNames[0];
-      const firstSheet = workbook.Sheets[sheetName];
-      const rows = window.XLSX.utils.sheet_to_json(firstSheet, {
-        header: 1,
-        raw: false,
-        blankrows: true,
-      });
+      const loading = setContainerLoading(previewWrap, messages.loading || "Cargando...");
+      try {
+        const blob = await requestBlob(`download/${item.id}`);
+        const buffer = await blob.arrayBuffer();
+        const workbook = window.XLSX.read(buffer, { type: "array" });
+        const sheetName = workbook.SheetNames[0];
+        const firstSheet = workbook.Sheets[sheetName];
+        const rows = window.XLSX.utils.sheet_to_json(firstSheet, {
+          header: 1,
+          raw: false,
+          blankrows: true,
+        });
 
-      state.sheetName = sheetName || "Sheet1";
-      const ext = String(item.filename || "").split(".").pop().toLowerCase();
-      state.bookType = ext && ["xls", "xlsx", "xlsm", "xlsb", "csv", "ods"].includes(ext) ? ext : "xlsx";
+        state.sheetName = sheetName || "Sheet1";
+        const ext = String(item.filename || "").split(".").pop().toLowerCase();
+        state.bookType = ext && ["xls", "xlsx", "xlsm", "xlsb", "csv", "ods"].includes(ext) ? ext : "xlsx";
+        state.excelEditable = !!editable;
 
-      excelTable.innerHTML = "";
-      const maxColumns = Math.max(1, ...rows.map((row) => row.length));
-      const tbody = document.createElement("tbody");
-      rows.forEach((rowData) => {
-        const tr = document.createElement("tr");
-        for (let col = 0; col < maxColumns; col += 1) {
+        excelTable.innerHTML = "";
+        const maxColumns = Math.max(1, ...rows.map((row) => row.length));
+        const tbody = document.createElement("tbody");
+        rows.forEach((rowData) => {
+          const tr = document.createElement("tr");
+          for (let col = 0; col < maxColumns; col += 1) {
+            const td = document.createElement("td");
+            td.contentEditable = editable ? "true" : "false";
+            if (!editable) {
+              td.classList.add("shared-docs-excel-table__readonly");
+            }
+            td.textContent = rowData[col] !== undefined ? rowData[col] : "";
+            tr.appendChild(td);
+          }
+          tbody.appendChild(tr);
+        });
+        if (!rows.length) {
+          const tr = document.createElement("tr");
           const td = document.createElement("td");
-          td.contentEditable = "true";
-          td.textContent = rowData[col] !== undefined ? rowData[col] : "";
+          td.contentEditable = editable ? "true" : "false";
+          if (!editable) {
+            td.classList.add("shared-docs-excel-table__readonly");
+          }
+          td.textContent = "";
           tr.appendChild(td);
+          tbody.appendChild(tr);
         }
-        tbody.appendChild(tr);
-      });
-      if (!rows.length) {
-        const tr = document.createElement("tr");
-        const td = document.createElement("td");
-        td.contentEditable = "true";
-        td.textContent = "";
-        tr.appendChild(td);
-        tbody.appendChild(tr);
+        excelTable.appendChild(tbody);
+        excelWrap.hidden = false;
+        if (saveExcelButton) saveExcelButton.hidden = !editable;
+        if (previewWrap) {
+          previewWrap.innerHTML = "";
+          const hint = document.createElement("p");
+          hint.className = "description";
+          hint.textContent = editable
+            ? "Modo edición activo."
+            : "Vista previa en solo lectura. No tienes permisos para editar este Excel.";
+          previewWrap.appendChild(hint);
+        }
+      } finally {
+        loading.stop();
       }
-      excelTable.appendChild(tbody);
-      excelWrap.hidden = false;
-      if (saveExcelButton) saveExcelButton.hidden = false;
-      if (previewWrap) previewWrap.innerHTML = "";
     };
 
     const loadPreview = async (item) => {
-      const blob = await requestBlob(`download/${item.id}`);
-      const objectUrl = window.URL.createObjectURL(blob);
-      state.previewObjectUrl = objectUrl;
       if (previewWrap) previewWrap.innerHTML = "";
+      let previewUrl = item.openUrl || "";
+      if (!previewUrl) {
+        const blob = await requestBlob(`download/${item.id}`);
+        previewUrl = window.URL.createObjectURL(blob);
+        state.previewObjectUrl = previewUrl;
+      }
       if ((item.mimeType || "").toLowerCase().startsWith("image/")) {
         const img = document.createElement("img");
-        img.src = objectUrl;
+        img.src = previewUrl;
         img.className = "shared-docs-preview-image";
         img.alt = item.label || "";
         previewWrap.appendChild(img);
       } else {
-        const frame = document.createElement("iframe");
-        frame.src = objectUrl;
-        frame.className = "shared-docs-preview-frame";
-        frame.title = item.label || "Vista previa";
-        previewWrap.appendChild(frame);
+        const objectEl = document.createElement("object");
+        objectEl.data = previewUrl;
+        objectEl.type = "application/pdf";
+        objectEl.className = "shared-docs-preview-frame";
+        const fallback = document.createElement("p");
+        fallback.className = "description";
+        const openLink = document.createElement("a");
+        openLink.href = previewUrl || "#";
+        openLink.target = "_blank";
+        openLink.rel = "noopener";
+        openLink.textContent = "Abrir PDF en una nueva pestaña";
+        fallback.appendChild(openLink);
+        objectEl.appendChild(fallback);
+        previewWrap.appendChild(objectEl);
       }
       if (excelWrap) excelWrap.hidden = true;
       if (saveExcelButton) saveExcelButton.hidden = true;
     };
 
     const openFromItem = async (item) => {
-      if (!item || item.type !== "file") {
+      if (!item || item.type !== "file" || state.busy) {
         return;
       }
       state.item = item;
+      state.busy = true;
       if (title) {
-        title.textContent = item.label || "Abrir archivo";
+        title.textContent =
+          item.isExcel && !item.canEditExcel
+            ? `${item.label || "Archivo"} · Vista previa Excel`
+            : item.label || "Abrir archivo";
       }
       modal.hidden = false;
+      if (saveExcelButton) saveExcelButton.hidden = true;
+      if (excelWrap) excelWrap.hidden = true;
+      setContainerLoading(previewWrap, messages.loading || "Cargando...");
 
       try {
         const mime = (item.mimeType || "").toLowerCase();
         if (item.isExcel) {
-          await loadExcel(item);
+          await loadExcel(item, !!item.canEditExcel);
+          state.busy = false;
           return;
         }
         if (mime === "application/pdf" || mime.startsWith("image/")) {
           await loadPreview(item);
+          state.busy = false;
           return;
         }
         if (item.downloadUrl) {
@@ -881,8 +1008,10 @@
         } else if (item.openUrl) {
           window.open(item.openUrl, "_blank", "noopener");
         }
+        state.busy = false;
         closeModal();
       } catch (error) {
+        state.busy = false;
         alert(error.message || messages.requestError || "Error de comunicación con el servidor.");
         closeModal();
       }
@@ -894,22 +1023,32 @@
 
     if (downloadButton) {
       downloadButton.addEventListener("click", () => {
-        if (!state.item) return;
+        if (!state.item || state.busy) return;
+        setButtonLoading(downloadButton, true, messages.processing || "Procesando...");
+        state.busy = true;
         if (state.item.downloadUrl) {
           window.location.href = state.item.downloadUrl;
+          window.setTimeout(() => {
+            state.busy = false;
+            setButtonLoading(downloadButton, false);
+          }, 900);
           return;
         }
         if (state.item.openUrl) {
           window.open(state.item.openUrl, "_blank", "noopener");
         }
+        state.busy = false;
+        setButtonLoading(downloadButton, false);
       });
     }
 
     if (saveExcelButton) {
       saveExcelButton.addEventListener("click", async () => {
-        if (!state.item || !window.XLSX || !excelTable) {
+        if (!state.item || !window.XLSX || !excelTable || !state.excelEditable || state.busy) {
           return;
         }
+        state.busy = true;
+        setButtonLoading(saveExcelButton, true, messages.processing || "Procesando...");
         try {
           const rows = [];
           excelTable.querySelectorAll("tr").forEach((rowEl) => {
@@ -934,8 +1073,12 @@
             },
           });
           alert(messages.excelSaveOk || "Cambios guardados correctamente.");
+          state.busy = false;
+          setButtonLoading(saveExcelButton, false);
           closeModal();
         } catch (error) {
+          state.busy = false;
+          setButtonLoading(saveExcelButton, false);
           alert(error.message || messages.excelSaveError || "No se pudo guardar el archivo Excel.");
         }
       });
@@ -987,6 +1130,7 @@
     const bulkMoveCloseButtons = bulkMoveModal
       ? bulkMoveModal.querySelectorAll('[data-action="close-bulk-move-modal"]')
       : [];
+    let submitLocked = false;
 
     const closeBulkMoveModal = () => {
       if (!bulkMoveModal) {
@@ -1002,6 +1146,12 @@
       if (!deleteForm || !deleteFolderInput || !deleteFileInput) {
         return;
       }
+      if (submitLocked) {
+        return;
+      }
+      submitLocked = true;
+      if (singleDeleteButton) setButtonLoading(singleDeleteButton, true, messages.processing || "Procesando...");
+      if (deleteButton) setButtonLoading(deleteButton, true, messages.processing || "Procesando...");
 
       deleteFolderInput.value = (folderIds || []).join(",");
       deleteFileInput.value = (fileIds || []).join(",");
@@ -1059,12 +1209,17 @@
     updatePanel();
 
     if (singleOpenButton) {
-      singleOpenButton.addEventListener("click", () => {
+      singleOpenButton.addEventListener("click", async () => {
         const item = getSingleItem();
         if (!item || item.type !== "file") {
           return;
         }
-        modalApis.file.open(item);
+        setButtonLoading(singleOpenButton, true, messages.processing || "Procesando...");
+        try {
+          await modalApis.file.open(item);
+        } finally {
+          setButtonLoading(singleOpenButton, false);
+        }
       });
     }
 
@@ -1075,7 +1230,9 @@
           return;
         }
         if (item.downloadUrl) {
+          setButtonLoading(singleDownloadButton, true, messages.processing || "Procesando...");
           window.location.href = item.downloadUrl;
+          window.setTimeout(() => setButtonLoading(singleDownloadButton, false), 900);
           return;
         }
         if (item.openUrl) {
@@ -1208,6 +1365,7 @@
   };
 
   setupUserSelectors();
+  setupFormSubmitLoading();
   const moveModalApi = setupSingleMoveModal();
   const renameModalApi = setupRenameModal();
   const accessModalApi = setupAccessModal();

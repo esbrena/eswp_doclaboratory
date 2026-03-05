@@ -108,7 +108,9 @@
     const goRootButton = root.querySelector('[data-action="go-root"]');
 
     const excelModal = document.getElementById("shared-docs-excel-modal");
+    const excelTitle = excelModal ? excelModal.querySelector(".shared-docs-modal__title") : null;
     const excelTable = excelModal ? excelModal.querySelector('[data-region="excel-table"]') : null;
+    const excelHint = excelModal ? excelModal.querySelector('[data-region="excel-hint"]') : null;
     const saveExcelButton = excelModal ? excelModal.querySelector('[data-action="save-excel"]') : null;
     const closeExcelButtons = excelModal ? excelModal.querySelectorAll('[data-action="close-modal"]') : [];
 
@@ -126,6 +128,8 @@
       excelEditor: null,
       previewFile: null,
       previewObjectUrl: "",
+      loadingFolder: false,
+      busyDownloadIds: {},
     };
 
     const setVisibility = (el, visible) => {
@@ -150,6 +154,51 @@
         toast.classList.remove("visible");
         window.setTimeout(() => toast.remove(), 240);
       }, 2800);
+    };
+
+    const setButtonLoading = (button, loading, loadingText) => {
+      if (!button) return;
+      if (loading) {
+        if (!button.dataset.originalLabel) {
+          button.dataset.originalLabel = button.textContent || "";
+        }
+        button.disabled = true;
+        button.classList.add("is-loading");
+        button.setAttribute("aria-busy", "true");
+        if (loadingText) {
+          button.textContent = loadingText;
+        }
+        return;
+      }
+      button.disabled = false;
+      button.classList.remove("is-loading");
+      button.removeAttribute("aria-busy");
+      if (button.dataset.originalLabel) {
+        button.textContent = button.dataset.originalLabel;
+      }
+    };
+
+    const setContainerLoading = (container, text) => {
+      if (!container) {
+        return { stop: () => {} };
+      }
+      container.innerHTML = "";
+      const loading = document.createElement("div");
+      loading.className = "shared-docs-loading";
+      const spinner = document.createElement("span");
+      spinner.className = "shared-docs-loading__spinner";
+      const label = document.createElement("span");
+      label.textContent = text || config.messages.loading || "Cargando...";
+      loading.appendChild(spinner);
+      loading.appendChild(label);
+      container.appendChild(loading);
+      return {
+        stop: () => {
+          if (loading.parentNode === container) {
+            loading.parentNode.removeChild(loading);
+          }
+        },
+      };
     };
 
     const renderBreadcrumb = () => {
@@ -177,11 +226,17 @@
       });
     };
 
-    const startDownload = async (file) => {
+    const startDownload = async (file, triggerButton = null) => {
       if (!file || !file.can_download) {
         showToast(config.messages.permissionError, "error");
         return;
       }
+      const lockKey = String(file.id || "");
+      if (state.busyDownloadIds[lockKey]) {
+        return;
+      }
+      state.busyDownloadIds[lockKey] = true;
+      setButtonLoading(triggerButton, true, config.messages.processing || "Procesando...");
       try {
         const blob = await requestBlob(`download/${file.id}`);
         const url = window.URL.createObjectURL(blob);
@@ -194,6 +249,9 @@
         window.URL.revokeObjectURL(url);
       } catch (error) {
         showToast(error.message || config.messages.downloadError, "error");
+      } finally {
+        delete state.busyDownloadIds[lockKey];
+        setButtonLoading(triggerButton, false);
       }
     };
 
@@ -201,6 +259,7 @@
       if (!previewModal) return;
       previewModal.hidden = true;
       state.previewFile = null;
+      setButtonLoading(previewDownloadButton, false);
       if (previewBody) previewBody.innerHTML = "";
       if (state.previewObjectUrl) {
         window.URL.revokeObjectURL(state.previewObjectUrl);
@@ -217,6 +276,7 @@
         return;
       }
 
+      const loading = setContainerLoading(previewBody, config.messages.loading || "Cargando...");
       try {
         const blob = await requestBlob(`download/${file.id}`);
         const objectUrl = window.URL.createObjectURL(blob);
@@ -224,6 +284,9 @@
         state.previewFile = file;
         if (previewTitle) {
           previewTitle.textContent = file.title || "Vista previa";
+        }
+        if (previewDownloadButton) {
+          previewDownloadButton.disabled = !file.can_download;
         }
         previewBody.innerHTML = "";
         if (String(file.mime_type).startsWith("image/")) {
@@ -242,10 +305,12 @@
         previewModal.hidden = false;
       } catch (error) {
         showToast(error.message || config.messages.requestError, "error");
+      } finally {
+        loading.stop();
       }
     };
 
-    const buildEditableTable = (rows) => {
+    const buildEditableTable = (rows, editable) => {
       excelTable.innerHTML = "";
       const maxColumns = Math.max(1, ...rows.map((row) => row.length));
       const tbody = document.createElement("tbody");
@@ -253,7 +318,10 @@
         const tr = document.createElement("tr");
         for (let col = 0; col < maxColumns; col += 1) {
           const td = document.createElement("td");
-          td.contentEditable = "true";
+          td.contentEditable = editable ? "true" : "false";
+          if (!editable) {
+            td.classList.add("shared-docs-excel-table__readonly");
+          }
           td.textContent = rowData[col] !== undefined ? rowData[col] : "";
           tr.appendChild(td);
         }
@@ -262,17 +330,23 @@
       if (!rows.length) {
         const tr = document.createElement("tr");
         const td = document.createElement("td");
-        td.contentEditable = "true";
+        td.contentEditable = editable ? "true" : "false";
+        if (!editable) {
+          td.classList.add("shared-docs-excel-table__readonly");
+        }
         tr.appendChild(td);
         tbody.appendChild(tr);
       }
       excelTable.appendChild(tbody);
     };
 
-    const openExcelEditor = async (file) => {
-      if (!excelModal || !excelTable || !file.can_edit_excel || !window.XLSX) {
-        showToast(config.messages.permissionError, "error");
+    const openExcelEditor = async (file, editable) => {
+      if (!excelModal || !excelTable || !window.XLSX) {
+        showToast(config.messages.excelLoadError || config.messages.requestError, "error");
         return;
+      }
+      if (excelHint) {
+        excelHint.textContent = config.messages.loading || "Cargando...";
       }
       try {
         const blob = await requestBlob(`download/${file.id}`);
@@ -289,8 +363,21 @@
           fileId: file.id,
           sheetName,
           bookType: resolveBookType(file.filename || file.title),
+          editable: !!editable,
         };
-        buildEditableTable(rows);
+        buildEditableTable(rows, !!editable);
+        if (excelHint) {
+          excelHint.textContent = editable
+            ? (config.messages.excelEditHint || "Haz clic sobre una celda para editarla.")
+            : (config.messages.excelReadOnlyHint ||
+              "Vista previa en solo lectura. No tienes permisos para editar este Excel.");
+        }
+        if (excelTitle) {
+          excelTitle.textContent = editable ? "Editar Excel" : "Vista previa Excel";
+        }
+        if (saveExcelButton) {
+          saveExcelButton.hidden = !editable;
+        }
         excelModal.hidden = false;
       } catch (error) {
         showToast(error.message || config.messages.excelLoadError, "error");
@@ -302,6 +389,16 @@
       excelModal.hidden = true;
       state.excelEditor = null;
       if (excelTable) excelTable.innerHTML = "";
+      if (excelHint) {
+        excelHint.textContent = config.messages.excelEditHint || "Haz clic sobre una celda para editarla.";
+      }
+      if (excelTitle) {
+        excelTitle.textContent = "Editar Excel";
+      }
+      if (saveExcelButton) {
+        saveExcelButton.hidden = false;
+        setButtonLoading(saveExcelButton, false);
+      }
     };
 
     const collectTableData = () => {
@@ -315,9 +412,10 @@
     };
 
     const saveExcel = async () => {
-      if (!state.excelEditor || !window.XLSX) {
+      if (!state.excelEditor || !window.XLSX || !state.excelEditor.editable) {
         return;
       }
+      setButtonLoading(saveExcelButton, true, config.messages.processing || "Procesando...");
       try {
         const workbook = window.XLSX.utils.book_new();
         const worksheet = window.XLSX.utils.aoa_to_sheet(collectTableData());
@@ -335,13 +433,15 @@
         await loadFolder(state.currentFolderId);
       } catch (error) {
         showToast(error.message || config.messages.excelSaveError, "error");
+      } finally {
+        setButtonLoading(saveExcelButton, false);
       }
     };
 
     const openFile = async (file) => {
       if (!file) return;
-      if (file.is_excel && file.can_edit_excel) {
-        await openExcelEditor(file);
+      if (file.is_excel) {
+        await openExcelEditor(file, !!file.can_edit_excel);
         return;
       }
       if (isPreviewableMime(file.mime_type)) {
@@ -406,7 +506,14 @@
         openBtn.type = "button";
         openBtn.className = "shared-docs-btn shared-docs-btn-primary";
         openBtn.textContent = "Abrir";
-        openBtn.addEventListener("click", () => openFile(file));
+        openBtn.addEventListener("click", async () => {
+          setButtonLoading(openBtn, true, config.messages.processing || "Procesando...");
+          try {
+            await openFile(file);
+          } finally {
+            setButtonLoading(openBtn, false);
+          }
+        });
         actions.appendChild(openBtn);
 
         const downloadBtn = document.createElement("button");
@@ -414,7 +521,7 @@
         downloadBtn.className = "shared-docs-btn shared-docs-btn-secondary";
         downloadBtn.textContent = "Descargar";
         downloadBtn.disabled = !file.can_download;
-        downloadBtn.addEventListener("click", () => startDownload(file));
+        downloadBtn.addEventListener("click", () => startDownload(file, downloadBtn));
         actions.appendChild(downloadBtn);
 
         card.appendChild(actions);
@@ -445,6 +552,10 @@
     };
 
     const loadFolder = async (folderId) => {
+      if (state.loadingFolder) {
+        return;
+      }
+      state.loadingFolder = true;
       state.currentFolderId = folderId;
       setVisibility(folderSection, true);
       setVisibility(fileSection, true);
@@ -467,6 +578,8 @@
       } catch (error) {
         showInlineMessage(folderRegion, error.message || config.messages.requestError);
         showInlineMessage(fileRegion, error.message || config.messages.requestError);
+      } finally {
+        state.loadingFolder = false;
       }
     };
 
@@ -486,7 +599,14 @@
     };
 
     if (goRootButton) {
-      goRootButton.addEventListener("click", () => loadFolder(null));
+      goRootButton.addEventListener("click", async () => {
+        setButtonLoading(goRootButton, true, config.messages.processing || "Procesando...");
+        try {
+          await loadFolder(null);
+        } finally {
+          setButtonLoading(goRootButton, false);
+        }
+      });
     }
     closeExcelButtons.forEach((btn) => btn.addEventListener("click", closeExcel));
     closePreviewButtons.forEach((btn) => btn.addEventListener("click", closePreview));
@@ -494,7 +614,9 @@
       saveExcelButton.addEventListener("click", saveExcel);
     }
     if (previewDownloadButton) {
-      previewDownloadButton.addEventListener("click", () => startDownload(state.previewFile));
+      previewDownloadButton.addEventListener("click", () =>
+        startDownload(state.previewFile, previewDownloadButton)
+      );
     }
 
     document.addEventListener("keydown", (event) => {
