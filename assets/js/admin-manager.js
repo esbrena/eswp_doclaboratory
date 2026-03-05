@@ -6,6 +6,9 @@
   const permissionsByFile = adminData.permissionsByFile || {};
   const userPermissionsHtmlByUser = adminData.userPermissionsHtmlByUser || {};
   const excelHistoryByFile = adminData.excelHistoryByFile || {};
+  const restBase = adminData.restBase || "";
+  const restNonce = adminData.nonce || "";
+  const messages = adminData.messages || {};
 
   const parseCheckboxItem = (checkbox) => {
     if (!checkbox) {
@@ -30,7 +33,10 @@
         .map((value) => value.trim())
         .filter((value) => value !== ""),
       openUrl: checkbox.getAttribute("data-open-url") || "",
+      downloadUrl: checkbox.getAttribute("data-download-url") || "",
       isExcel: checkbox.getAttribute("data-is-excel") === "1",
+      mimeType: checkbox.getAttribute("data-mime-type") || "",
+      filename: checkbox.getAttribute("data-filename") || "",
     };
   };
 
@@ -46,6 +52,60 @@
       fileIds,
       total: items.length,
     };
+  };
+
+  const toApiUrl = (path) => `${restBase}${path}`.replace(/([^:]\/)\/+/g, "$1");
+
+  const requestJson = async (path, options = {}) => {
+    const response = await fetch(toApiUrl(path), {
+      method: options.method || "GET",
+      headers: {
+        "X-WP-Nonce": restNonce,
+        "Content-Type": "application/json",
+      },
+      credentials: "same-origin",
+      body: options.body ? JSON.stringify(options.body) : undefined,
+    });
+
+    if (!response.ok) {
+      let message = messages.requestError || "Error de comunicación con el servidor.";
+      try {
+        const json = await response.json();
+        if (json && json.message) {
+          message = json.message;
+        }
+      } catch (e) {
+        // noop
+      }
+      throw new Error(message);
+    }
+
+    return response.json();
+  };
+
+  const requestBlob = async (path) => {
+    const response = await fetch(toApiUrl(path), {
+      method: "GET",
+      headers: {
+        "X-WP-Nonce": restNonce,
+      },
+      credentials: "same-origin",
+    });
+
+    if (!response.ok) {
+      let message = messages.downloadError || "No se pudo descargar el archivo.";
+      try {
+        const json = await response.json();
+        if (json && json.message) {
+          message = json.message;
+        }
+      } catch (e) {
+        // noop
+      }
+      throw new Error(message);
+    }
+
+    return response.blob();
   };
 
   const setupUserSelectors = () => {
@@ -259,14 +319,11 @@
       };
     }
 
-    const modalTitle = modal.querySelector("[data-access-modal-title]");
     const itemLabel = modal.querySelector("[data-access-item-label]");
     const itemTypeInput = modal.querySelector("[data-access-item-type]");
     const itemIdInput = modal.querySelector("[data-access-item-id]");
     const tableBody = modal.querySelector("[data-access-current-body]");
     const emptyRow = modal.querySelector("[data-access-current-empty]");
-    const viewSection = modal.querySelector("[data-access-view-section]");
-    const manageSection = modal.querySelector("[data-access-manage-section]");
     const closeButtons = modal.querySelectorAll('[data-action="close-access-modal"]');
     const openButtons = Array.from(document.querySelectorAll(".shared-docs-open-access-modal"));
 
@@ -375,7 +432,6 @@
 
     const closeModal = () => {
       modal.hidden = true;
-      if (modalTitle) modalTitle.textContent = "Administrar acceso";
       if (itemLabel) itemLabel.textContent = "";
       if (itemTypeInput) itemTypeInput.value = "";
       if (itemIdInput) itemIdInput.value = "";
@@ -392,27 +448,9 @@
       clearRows();
     };
 
-    const openFromItem = (item, mode) => {
+    const openFromItem = (item) => {
       if (!item) {
         return;
-      }
-
-      const resolvedMode =
-        mode === "view" || mode === "manage" || mode === "all" ? mode : "all";
-      if (modalTitle) {
-        modalTitle.textContent =
-          resolvedMode === "view"
-            ? "Ver permisos"
-            : resolvedMode === "manage"
-            ? "Gestión de permisos"
-            : "Administrar acceso";
-      }
-
-      if (viewSection) {
-        viewSection.hidden = resolvedMode === "manage";
-      }
-      if (manageSection) {
-        manageSection.hidden = resolvedMode === "view";
       }
 
       Array.from(modal.querySelectorAll(".shared-docs-user-checkbox")).forEach((checkbox) => {
@@ -446,14 +484,11 @@
 
     openButtons.forEach((button) => {
       button.addEventListener("click", () =>
-        openFromItem(
-          {
-            type: button.getAttribute("data-item-type") || "",
-            id: button.getAttribute("data-item-id") || "",
-            label: button.getAttribute("data-item-label") || "",
-          },
-          button.getAttribute("data-access-mode") || "all"
-        )
+        openFromItem({
+          type: button.getAttribute("data-item-type") || "",
+          id: button.getAttribute("data-item-id") || "",
+          label: button.getAttribute("data-item-label") || "",
+        })
       );
     });
     closeButtons.forEach((button) => button.addEventListener("click", closeModal));
@@ -461,6 +496,180 @@
     return {
       open: openFromItem,
     };
+  };
+
+  const setupAccessViewModal = () => {
+    const modal = document.querySelector("[data-shared-access-view-modal]");
+    if (!modal) {
+      return { open: () => {} };
+    }
+
+    const itemLabel = modal.querySelector("[data-access-item-label]");
+    const tableBody = modal.querySelector("[data-access-current-body]");
+    const emptyRow = modal.querySelector("[data-access-current-empty]");
+    const closeButtons = modal.querySelectorAll('[data-action="close-access-view-modal"]');
+    const openButtons = Array.from(document.querySelectorAll(".shared-docs-open-permissions-view-modal"));
+
+    const clearRows = () => {
+      if (!tableBody) return;
+      Array.from(tableBody.querySelectorAll("tr[data-access-row]")).forEach((row) => row.remove());
+      if (emptyRow) emptyRow.hidden = false;
+    };
+
+    const renderRows = (rows) => {
+      if (!tableBody) return;
+      clearRows();
+      if (!rows.length) return;
+      if (emptyRow) emptyRow.hidden = true;
+
+      rows.forEach((row) => {
+        const tr = document.createElement("tr");
+        tr.setAttribute("data-access-row", "1");
+        const userCell = document.createElement("td");
+        userCell.textContent = row.user || "";
+        tr.appendChild(userCell);
+        const readCell = document.createElement("td");
+        readCell.textContent = row.can_read ? "✔" : "—";
+        tr.appendChild(readCell);
+        const downloadCell = document.createElement("td");
+        downloadCell.textContent = row.can_download ? "✔" : "—";
+        tr.appendChild(downloadCell);
+        const editCell = document.createElement("td");
+        editCell.textContent = row.can_edit_excel ? "✔" : "—";
+        tr.appendChild(editCell);
+        const expiresCell = document.createElement("td");
+        expiresCell.textContent = row.expires_at || "";
+        tr.appendChild(expiresCell);
+        const actionsCell = document.createElement("td");
+        const detailsLink = document.createElement("a");
+        detailsLink.href = row.edit_url || "#";
+        detailsLink.textContent = "Editar";
+        actionsCell.appendChild(detailsLink);
+        const separator = document.createTextNode(" | ");
+        actionsCell.appendChild(separator);
+        const revokeLink = document.createElement("a");
+        revokeLink.href = row.revoke_url || "#";
+        revokeLink.textContent = "Revocar";
+        revokeLink.addEventListener("click", (event) => {
+          if (!window.confirm("¿Revocar este permiso?")) {
+            event.preventDefault();
+          }
+        });
+        actionsCell.appendChild(revokeLink);
+
+        const userPermissionsHtml = row.user_id ? userPermissionsHtmlByUser[row.user_id] : "";
+        let detailsRow = null;
+        if (userPermissionsHtml) {
+          actionsCell.appendChild(document.createTextNode(" | "));
+          const userLink = document.createElement("a");
+          userLink.href = "#";
+          userLink.textContent = "Ver permisos usuario";
+          actionsCell.appendChild(userLink);
+
+          detailsRow = document.createElement("tr");
+          detailsRow.setAttribute("data-access-row", "1");
+          detailsRow.hidden = true;
+          const detailsCell = document.createElement("td");
+          detailsCell.colSpan = 6;
+          detailsCell.className = "shared-docs-access-user-details";
+          detailsCell.innerHTML = userPermissionsHtml;
+          detailsRow.appendChild(detailsCell);
+
+          userLink.addEventListener("click", (event) => {
+            event.preventDefault();
+            detailsRow.hidden = !detailsRow.hidden;
+          });
+        }
+
+        tr.appendChild(actionsCell);
+        tableBody.appendChild(tr);
+        if (detailsRow) tableBody.appendChild(detailsRow);
+      });
+    };
+
+    const closeModal = () => {
+      modal.hidden = true;
+      if (itemLabel) itemLabel.textContent = "";
+      clearRows();
+    };
+
+    const open = (item) => {
+      if (!item) return;
+      if (itemLabel) {
+        itemLabel.textContent = item.label ? `Elemento: ${item.label}` : "";
+      }
+      const rows =
+        item.type === "folder"
+          ? permissionsByFolder[item.id] || []
+          : item.type === "file"
+          ? permissionsByFile[item.id] || []
+          : [];
+      renderRows(rows);
+      modal.hidden = false;
+    };
+
+    openButtons.forEach((button) => {
+      button.addEventListener("click", () =>
+        open({
+          type: button.getAttribute("data-item-type") || "",
+          id: button.getAttribute("data-item-id") || "",
+          label: button.getAttribute("data-item-label") || "",
+        })
+      );
+    });
+    closeButtons.forEach((button) => button.addEventListener("click", closeModal));
+
+    return { open };
+  };
+
+  const setupAccessManageModal = () => {
+    const modal = document.querySelector("[data-shared-access-manage-modal]");
+    if (!modal) {
+      return { open: () => {} };
+    }
+    const itemLabel = modal.querySelector("[data-access-item-label]");
+    const itemTypeInput = modal.querySelector("[data-access-item-type]");
+    const itemIdInput = modal.querySelector("[data-access-item-id]");
+    const closeButtons = modal.querySelectorAll('[data-action="close-access-manage-modal"]');
+    const openButtons = Array.from(document.querySelectorAll(".shared-docs-open-permissions-manage-modal"));
+
+    const closeModal = () => {
+      modal.hidden = true;
+      if (itemLabel) itemLabel.textContent = "";
+      if (itemTypeInput) itemTypeInput.value = "";
+      if (itemIdInput) itemIdInput.value = "";
+      Array.from(modal.querySelectorAll(".shared-docs-user-checkbox")).forEach((checkbox) => {
+        checkbox.checked = false;
+      });
+      Array.from(modal.querySelectorAll("[data-user-item]")).forEach((item) => {
+        item.hidden = false;
+      });
+      Array.from(modal.querySelectorAll("[data-user-search]")).forEach((input) => {
+        input.value = "";
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    };
+
+    const open = (item) => {
+      if (!item) return;
+      if (itemTypeInput) itemTypeInput.value = item.type;
+      if (itemIdInput) itemIdInput.value = item.id;
+      if (itemLabel) itemLabel.textContent = item.label ? `Elemento: ${item.label}` : "";
+      modal.hidden = false;
+    };
+
+    openButtons.forEach((button) => {
+      button.addEventListener("click", () =>
+        open({
+          type: button.getAttribute("data-item-type") || "",
+          id: button.getAttribute("data-item-id") || "",
+          label: button.getAttribute("data-item-label") || "",
+        })
+      );
+    });
+    closeButtons.forEach((button) => button.addEventListener("click", closeModal));
+
+    return { open };
   };
 
   const setupHistoryModal = () => {
@@ -541,6 +750,202 @@
     };
   };
 
+  const setupFileModal = () => {
+    const modal = document.querySelector("[data-shared-file-modal]");
+    if (!modal) {
+      return {
+        open: () => {},
+      };
+    }
+
+    const title = modal.querySelector("[data-file-modal-title]");
+    const previewWrap = modal.querySelector("[data-file-preview-wrap]");
+    const excelWrap = modal.querySelector("[data-file-excel-wrap]");
+    const excelTable = modal.querySelector("[data-file-excel-table]");
+    const saveExcelButton = modal.querySelector('[data-action="file-modal-save-excel"]');
+    const downloadButton = modal.querySelector('[data-action="file-modal-download"]');
+    const closeButtons = modal.querySelectorAll('[data-action="close-file-modal"]');
+
+    const state = {
+      item: null,
+      sheetName: "",
+      bookType: "xlsx",
+      previewObjectUrl: "",
+    };
+
+    const closeModal = () => {
+      modal.hidden = true;
+      state.item = null;
+      state.sheetName = "";
+      state.bookType = "xlsx";
+      if (previewWrap) previewWrap.innerHTML = "";
+      if (excelTable) excelTable.innerHTML = "";
+      if (excelWrap) excelWrap.hidden = true;
+      if (saveExcelButton) saveExcelButton.hidden = true;
+      if (state.previewObjectUrl) {
+        window.URL.revokeObjectURL(state.previewObjectUrl);
+        state.previewObjectUrl = "";
+      }
+    };
+
+    const loadExcel = async (item) => {
+      if (!window.XLSX) {
+        throw new Error(messages.excelLoadError || "No se pudo abrir el archivo Excel.");
+      }
+      const blob = await requestBlob(`download/${item.id}`);
+      const buffer = await blob.arrayBuffer();
+      const workbook = window.XLSX.read(buffer, { type: "array" });
+      const sheetName = workbook.SheetNames[0];
+      const firstSheet = workbook.Sheets[sheetName];
+      const rows = window.XLSX.utils.sheet_to_json(firstSheet, {
+        header: 1,
+        raw: false,
+        blankrows: true,
+      });
+
+      state.sheetName = sheetName || "Sheet1";
+      const ext = String(item.filename || "").split(".").pop().toLowerCase();
+      state.bookType = ext && ["xls", "xlsx", "xlsm", "xlsb", "csv", "ods"].includes(ext) ? ext : "xlsx";
+
+      excelTable.innerHTML = "";
+      const maxColumns = Math.max(1, ...rows.map((row) => row.length));
+      const tbody = document.createElement("tbody");
+      rows.forEach((rowData) => {
+        const tr = document.createElement("tr");
+        for (let col = 0; col < maxColumns; col += 1) {
+          const td = document.createElement("td");
+          td.contentEditable = "true";
+          td.textContent = rowData[col] !== undefined ? rowData[col] : "";
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      });
+      if (!rows.length) {
+        const tr = document.createElement("tr");
+        const td = document.createElement("td");
+        td.contentEditable = "true";
+        td.textContent = "";
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+      }
+      excelTable.appendChild(tbody);
+      excelWrap.hidden = false;
+      if (saveExcelButton) saveExcelButton.hidden = false;
+      if (previewWrap) previewWrap.innerHTML = "";
+    };
+
+    const loadPreview = async (item) => {
+      const blob = await requestBlob(`download/${item.id}`);
+      const objectUrl = window.URL.createObjectURL(blob);
+      state.previewObjectUrl = objectUrl;
+      if (previewWrap) previewWrap.innerHTML = "";
+      if ((item.mimeType || "").toLowerCase().startsWith("image/")) {
+        const img = document.createElement("img");
+        img.src = objectUrl;
+        img.className = "shared-docs-preview-image";
+        img.alt = item.label || "";
+        previewWrap.appendChild(img);
+      } else {
+        const frame = document.createElement("iframe");
+        frame.src = objectUrl;
+        frame.className = "shared-docs-preview-frame";
+        frame.title = item.label || "Vista previa";
+        previewWrap.appendChild(frame);
+      }
+      if (excelWrap) excelWrap.hidden = true;
+      if (saveExcelButton) saveExcelButton.hidden = true;
+    };
+
+    const openFromItem = async (item) => {
+      if (!item || item.type !== "file") {
+        return;
+      }
+      state.item = item;
+      if (title) {
+        title.textContent = item.label || "Abrir archivo";
+      }
+      modal.hidden = false;
+
+      try {
+        const mime = (item.mimeType || "").toLowerCase();
+        if (item.isExcel) {
+          await loadExcel(item);
+          return;
+        }
+        if (mime === "application/pdf" || mime.startsWith("image/")) {
+          await loadPreview(item);
+          return;
+        }
+        if (item.downloadUrl) {
+          window.location.href = item.downloadUrl;
+        } else if (item.openUrl) {
+          window.open(item.openUrl, "_blank", "noopener");
+        }
+        closeModal();
+      } catch (error) {
+        alert(error.message || messages.requestError || "Error de comunicación con el servidor.");
+        closeModal();
+      }
+    };
+
+    closeButtons.forEach((button) => {
+      button.addEventListener("click", closeModal);
+    });
+
+    if (downloadButton) {
+      downloadButton.addEventListener("click", () => {
+        if (!state.item) return;
+        if (state.item.downloadUrl) {
+          window.location.href = state.item.downloadUrl;
+          return;
+        }
+        if (state.item.openUrl) {
+          window.open(state.item.openUrl, "_blank", "noopener");
+        }
+      });
+    }
+
+    if (saveExcelButton) {
+      saveExcelButton.addEventListener("click", async () => {
+        if (!state.item || !window.XLSX || !excelTable) {
+          return;
+        }
+        try {
+          const rows = [];
+          excelTable.querySelectorAll("tr").forEach((rowEl) => {
+            const row = [];
+            rowEl.querySelectorAll("td").forEach((cellEl) => {
+              row.push(cellEl.textContent || "");
+            });
+            rows.push(row);
+          });
+          const workbook = window.XLSX.utils.book_new();
+          const worksheet = window.XLSX.utils.aoa_to_sheet(rows);
+          window.XLSX.utils.book_append_sheet(workbook, worksheet, state.sheetName || "Sheet1");
+          const workbookBase64 = window.XLSX.write(workbook, {
+            bookType: state.bookType || "xlsx",
+            type: "base64",
+          });
+          await requestJson("excel/save", {
+            method: "POST",
+            body: {
+              file_id: Number(state.item.id),
+              workbook_base64: workbookBase64,
+            },
+          });
+          alert(messages.excelSaveOk || "Cambios guardados correctamente.");
+          closeModal();
+        } catch (error) {
+          alert(error.message || messages.excelSaveError || "No se pudo guardar el archivo Excel.");
+        }
+      });
+    }
+
+    return {
+      open: openFromItem,
+    };
+  };
+
   const setupTreeSelectionActions = (modalApis) => {
     const panel = document.querySelector("[data-tree-global-actions]");
     if (!panel) {
@@ -552,6 +957,7 @@
     const multiActions = panel.querySelector("[data-tree-actions-multi]");
 
     const singleOpenButton = panel.querySelector('[data-action="tree-single-open"]');
+    const singleDownloadButton = panel.querySelector('[data-action="tree-single-download"]');
     const singleRenameButton = panel.querySelector('[data-action="tree-single-rename"]');
     const singleAccessButton = panel.querySelector('[data-action="tree-single-access"]');
     const singleHistoryButton = panel.querySelector('[data-action="tree-single-history"]');
@@ -626,7 +1032,10 @@
       }
 
       if (singleOpenButton) {
-        singleOpenButton.hidden = !singleItem || singleItem.type !== "file" || !singleItem.openUrl;
+        singleOpenButton.hidden = !singleItem || singleItem.type !== "file";
+      }
+      if (singleDownloadButton) {
+        singleDownloadButton.hidden = !singleItem || singleItem.type !== "file";
       }
       if (singleRenameButton) {
         singleRenameButton.hidden = !singleItem || singleItem.type !== "folder";
@@ -644,10 +1053,26 @@
     if (singleOpenButton) {
       singleOpenButton.addEventListener("click", () => {
         const item = getSingleItem();
-        if (!item || item.type !== "file" || !item.openUrl) {
+        if (!item || item.type !== "file") {
           return;
         }
-        window.open(item.openUrl, "_blank", "noopener");
+        modalApis.file.open(item);
+      });
+    }
+
+    if (singleDownloadButton) {
+      singleDownloadButton.addEventListener("click", () => {
+        const item = getSingleItem();
+        if (!item || item.type !== "file") {
+          return;
+        }
+        if (item.downloadUrl) {
+          window.location.href = item.downloadUrl;
+          return;
+        }
+        if (item.openUrl) {
+          window.open(item.openUrl, "_blank", "noopener");
+        }
       });
     }
 
@@ -667,7 +1092,7 @@
         if (!item) {
           return;
         }
-        modalApis.access.open(item, "all");
+        modalApis.access.open(item);
       });
     }
 
@@ -778,12 +1203,16 @@
   const moveModalApi = setupSingleMoveModal();
   const renameModalApi = setupRenameModal();
   const accessModalApi = setupAccessModal();
+  setupAccessViewModal();
+  setupAccessManageModal();
   const historyModalApi = setupHistoryModal();
+  const fileModalApi = setupFileModal();
   setupTreeSelectionActions({
     move: moveModalApi,
     rename: renameModalApi,
     access: accessModalApi,
     history: historyModalApi,
+    file: fileModalApi,
   });
   setupResourceSearch();
 })();

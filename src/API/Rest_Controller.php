@@ -4,6 +4,7 @@ namespace SharedDocsManager\API;
 
 use SharedDocsManager\Helpers\Activity_Logger;
 use SharedDocsManager\Helpers\File_Helper;
+use SharedDocsManager\Helpers\Icon_Helper;
 use SharedDocsManager\Permissions\Permission_Manager;
 use WP_Error;
 use WP_REST_Request;
@@ -119,6 +120,16 @@ class Rest_Controller
 
         register_rest_route(
             $this->namespace,
+            '/file/(?P<id>\d+)',
+            array(
+                'methods'             => 'GET',
+                'callback'            => array($this, 'get_file_detail'),
+                'permission_callback' => array($this, 'rest_permission_logged_in'),
+            )
+        );
+
+        register_rest_route(
+            $this->namespace,
             '/excel/save',
             array(
                 'methods'             => 'POST',
@@ -163,6 +174,8 @@ class Rest_Controller
                 'title'        => $folder->post_title,
                 'parent_id'    => (int) $folder->post_parent,
                 'has_children' => $this->permission_manager->folder_has_visible_children($user_id, (int) $folder->ID),
+                'icon_key'     => 'folder',
+                'icon_svg'     => Icon_Helper::svg_for_resource('folder'),
             );
         }
 
@@ -230,9 +243,12 @@ class Rest_Controller
                 'mime_type'      => $mime_type,
                 'size'           => $size,
                 'modified'       => mysql2date('c', $file->post_modified_gmt),
+                'folder_id'      => $folder_id,
                 'can_download'   => (bool) $can_download,
                 'is_excel'       => (bool) $is_excel,
                 'can_edit_excel' => (bool) ($is_excel && $can_edit_excel),
+                'icon_key'       => Icon_Helper::key_for_file($filename, $mime_type),
+                'icon_svg'       => Icon_Helper::svg_for_resource('file', $filename, $mime_type),
             );
         }
 
@@ -260,6 +276,51 @@ class Rest_Controller
         }
 
         return rest_ensure_response($this->permission_manager->get_breadcrumb($user_id, $folder_id));
+    }
+
+    /**
+     * Obtiene metadatos de un archivo puntual para apertura directa.
+     *
+     * @param WP_REST_Request $request Request.
+     *
+     * @return array|WP_Error
+     */
+    public function get_file_detail(WP_REST_Request $request)
+    {
+        $file_id = (int) $request['id'];
+        $user_id = get_current_user_id();
+        if ($file_id <= 0) {
+            return new WP_Error('shared_docs_invalid_file', __('Archivo inválido.', 'shared-docs-manager'), array('status' => 400));
+        }
+
+        if (! $this->permission_manager->user_can_access_file($user_id, $file_id, 'can_read')) {
+            return new WP_Error('shared_docs_forbidden', __('No tienes acceso a este archivo.', 'shared-docs-manager'), array('status' => 403));
+        }
+
+        $file = get_post($file_id);
+        if (! $file || $file->post_type !== 'attachment') {
+            return new WP_Error('shared_docs_not_found', __('Archivo no encontrado.', 'shared-docs-manager'), array('status' => 404));
+        }
+
+        $path = get_attached_file($file_id);
+        $filename = $path ? basename($path) : $file->post_title;
+        $mime_type = (string) get_post_mime_type($file_id);
+        $is_excel = File_Helper::is_excel_file($filename, $mime_type);
+
+        return rest_ensure_response(
+            array(
+                'id'             => $file_id,
+                'title'          => $file->post_title,
+                'filename'       => $filename,
+                'mime_type'      => $mime_type,
+                'folder_id'      => (int) get_post_meta($file_id, 'shared_folder_id', true),
+                'can_download'   => (bool) $this->permission_manager->user_can_access_file($user_id, $file_id, 'can_download'),
+                'is_excel'       => (bool) $is_excel,
+                'can_edit_excel' => (bool) ($is_excel && $this->permission_manager->user_can_access_file($user_id, $file_id, 'can_edit_excel')),
+                'icon_key'       => Icon_Helper::key_for_file($filename, $mime_type),
+                'icon_svg'       => Icon_Helper::svg_for_resource('file', $filename, $mime_type),
+            )
+        );
     }
 
     /**

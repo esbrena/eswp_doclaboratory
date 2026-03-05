@@ -2,6 +2,7 @@
 
 namespace SharedDocsManager\Front;
 
+use SharedDocsManager\Helpers\Icon_Helper;
 use SharedDocsManager\Permissions\Permission_Manager;
 
 if (! defined('ABSPATH')) {
@@ -33,6 +34,7 @@ class Front_Controller
     public function register_hooks()
     {
         add_action('wp_enqueue_scripts', array($this, 'register_assets'));
+        add_action('wp_enqueue_scripts', array($this, 'maybe_enqueue_assets_for_dynamic_dashboards'), 20);
     }
 
     /**
@@ -67,6 +69,24 @@ class Front_Controller
     }
 
     /**
+     * Encola assets también fuera del render directo del shortcode
+     * para paneles/dashboards que inyectan HTML por AJAX.
+     *
+     * @return void
+     */
+    public function maybe_enqueue_assets_for_dynamic_dashboards()
+    {
+        if (is_admin() || ! is_user_logged_in()) {
+            return;
+        }
+
+        wp_enqueue_style('shared-docs-front');
+        wp_enqueue_script('shared-docs-sheetjs');
+        wp_enqueue_script('shared-docs-front');
+        $this->localize_front_script();
+    }
+
+    /**
      * Renderiza HTML principal del gestor.
      *
      * @return string
@@ -74,10 +94,12 @@ class Front_Controller
     public function render_manager()
     {
         $this->enqueue_assets();
+        $initial_folder_id = isset($_GET['sd_folder']) ? (int) $_GET['sd_folder'] : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+        $initial_file_id = isset($_GET['sd_file']) ? (int) $_GET['sd_file'] : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 
         ob_start();
         ?>
-        <div id="shared-docs-manager" class="shared-docs-manager">
+        <div id="shared-docs-manager" class="shared-docs-manager" data-initial-folder-id="<?php echo esc_attr((string) $initial_folder_id); ?>" data-initial-file-id="<?php echo esc_attr((string) $initial_file_id); ?>">
             <div class="shared-docs-toolbar">
                 <div class="shared-docs-toolbar-title">
                     <h3><?php esc_html_e('Documentos compartidos', 'shared-docs-manager'); ?></h3>
@@ -102,6 +124,25 @@ class Front_Controller
                 </section>
 
                 <div class="shared-docs-empty shared-docs-directory-empty" data-region="directory-empty" hidden></div>
+            </div>
+        </div>
+
+        <div id="shared-docs-file-preview-modal" class="shared-docs-modal shared-docs-modal--fullscreen" hidden>
+            <div class="shared-docs-modal__backdrop" data-action="close-preview-modal"></div>
+            <div class="shared-docs-modal__content shared-docs-modal__content--fullscreen" role="dialog" aria-modal="true">
+                <header class="shared-docs-modal__header">
+                    <h4 class="shared-docs-modal__title" data-region="preview-title"><?php esc_html_e('Vista previa', 'shared-docs-manager'); ?></h4>
+                    <button type="button" class="shared-docs-modal__close" data-action="close-preview-modal">&times;</button>
+                </header>
+                <div class="shared-docs-modal__body" data-region="preview-body"></div>
+                <footer class="shared-docs-modal__footer">
+                    <button type="button" class="shared-docs-btn shared-docs-btn-secondary" data-action="close-preview-modal">
+                        <?php esc_html_e('Cerrar', 'shared-docs-manager'); ?>
+                    </button>
+                    <button type="button" class="shared-docs-btn shared-docs-btn-primary" data-action="preview-download">
+                        <?php esc_html_e('Descargar', 'shared-docs-manager'); ?>
+                    </button>
+                </footer>
             </div>
         </div>
 
@@ -178,10 +219,15 @@ class Front_Controller
                     <?php else : ?>
                         <ul class="shared-docs-overview__list">
                             <?php foreach ($latest_folders as $folder) : ?>
+                                <?php $folder_url = $manager_url !== '' ? add_query_arg(array('sd_folder' => (int) $folder->ID), $manager_url) : ''; ?>
                                 <li>
-                                    <span class="shared-docs-overview__icon">📁</span>
+                                    <span class="shared-docs-overview__icon"><?php echo $this->render_overview_icon('folder', null); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?></span>
                                     <div>
-                                        <strong><?php echo esc_html($folder->post_title); ?></strong>
+                                        <?php if ($folder_url !== '') : ?>
+                                            <strong><a href="<?php echo esc_url($folder_url); ?>"><?php echo esc_html($folder->post_title); ?></a></strong>
+                                        <?php else : ?>
+                                            <strong><?php echo esc_html($folder->post_title); ?></strong>
+                                        <?php endif; ?>
                                         <small><?php echo esc_html($this->format_post_datetime($folder->post_modified_gmt)); ?></small>
                                     </div>
                                 </li>
@@ -201,11 +247,22 @@ class Front_Controller
                                 $folder_id = (int) get_post_meta((int) $file->ID, 'shared_folder_id', true);
                                 $folder_title = $folder_id > 0 ? get_the_title($folder_id) : '';
                                 $folder_title = $folder_title ? $folder_title : __('Sin carpeta', 'shared-docs-manager');
+                                $file_url = $manager_url !== '' ? add_query_arg(
+                                    array(
+                                        'sd_folder' => $folder_id,
+                                        'sd_file'   => (int) $file->ID,
+                                    ),
+                                    $manager_url
+                                ) : '';
                                 ?>
                                 <li>
-                                    <span class="shared-docs-overview__icon">📄</span>
+                                    <span class="shared-docs-overview__icon"><?php echo $this->render_overview_icon('file', $file); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?></span>
                                     <div>
-                                        <strong><?php echo esc_html($file->post_title); ?></strong>
+                                        <?php if ($file_url !== '') : ?>
+                                            <strong><a href="<?php echo esc_url($file_url); ?>"><?php echo esc_html($file->post_title); ?></a></strong>
+                                        <?php else : ?>
+                                            <strong><?php echo esc_html($file->post_title); ?></strong>
+                                        <?php endif; ?>
                                         <small>
                                             <?php
                                             echo esc_html(
@@ -240,31 +297,42 @@ class Front_Controller
         wp_enqueue_style('shared-docs-front');
         wp_enqueue_script('shared-docs-sheetjs');
         wp_enqueue_script('shared-docs-front');
+        $this->localize_front_script();
+    }
 
-        if (! $this->localized) {
-            wp_localize_script(
-                'shared-docs-front',
-                'SharedDocsData',
-                array(
-                    'restBase'   => trailingslashit(rest_url('shared-docs/v1')),
-                    'nonce'      => wp_create_nonce('wp_rest'),
-                    'isManager'  => $this->permission_manager->current_user_can_manage(),
-                    'messages'   => array(
-                        'loading'         => __('Cargando...', 'shared-docs-manager'),
-                        'noFolders'       => __('No hay carpetas disponibles.', 'shared-docs-manager'),
-                        'noFiles'         => __('No hay archivos en esta carpeta.', 'shared-docs-manager'),
-                        'noDirectoryItems'=> __('No hay archivos ni carpetas en el directorio "%s".', 'shared-docs-manager'),
-                        'downloadError'   => __('No se pudo descargar el archivo.', 'shared-docs-manager'),
-                        'excelLoadError'  => __('No se pudo abrir el archivo Excel.', 'shared-docs-manager'),
-                        'excelSaveError'  => __('No se pudo guardar el archivo Excel.', 'shared-docs-manager'),
-                        'excelSaveOk'     => __('Cambios guardados correctamente.', 'shared-docs-manager'),
-                        'requestError'    => __('Error de comunicación con el servidor.', 'shared-docs-manager'),
-                        'permissionError' => __('No tienes permisos para esta acción.', 'shared-docs-manager'),
-                    ),
-                )
-            );
-            $this->localized = true;
+    /**
+     * Localiza configuración de frontend.
+     *
+     * @return void
+     */
+    private function localize_front_script()
+    {
+        if ($this->localized) {
+            return;
         }
+
+        wp_localize_script(
+            'shared-docs-front',
+            'SharedDocsData',
+            array(
+                'restBase'   => trailingslashit(rest_url('shared-docs/v1')),
+                'nonce'      => wp_create_nonce('wp_rest'),
+                'isManager'  => $this->permission_manager->current_user_can_manage(),
+                'messages'   => array(
+                    'loading'         => __('Cargando...', 'shared-docs-manager'),
+                    'noFolders'       => __('No hay carpetas disponibles.', 'shared-docs-manager'),
+                    'noFiles'         => __('No hay archivos en esta carpeta.', 'shared-docs-manager'),
+                    'noDirectoryItems'=> __('No hay archivos ni carpetas en el directorio "%s".', 'shared-docs-manager'),
+                    'downloadError'   => __('No se pudo descargar el archivo.', 'shared-docs-manager'),
+                    'excelLoadError'  => __('No se pudo abrir el archivo Excel.', 'shared-docs-manager'),
+                    'excelSaveError'  => __('No se pudo guardar el archivo Excel.', 'shared-docs-manager'),
+                    'excelSaveOk'     => __('Cambios guardados correctamente.', 'shared-docs-manager'),
+                    'requestError'    => __('Error de comunicación con el servidor.', 'shared-docs-manager'),
+                    'permissionError' => __('No tienes permisos para esta acción.', 'shared-docs-manager'),
+                ),
+            )
+        );
+        $this->localized = true;
     }
 
     /**
@@ -319,6 +387,28 @@ class Front_Controller
                 'order'          => 'DESC',
             )
         );
+    }
+
+    /**
+     * Renderiza icono SVG para overview.
+     *
+     * @param string      $type folder|file.
+     * @param object|null $file Attachment.
+     *
+     * @return string
+     */
+    private function render_overview_icon($type, $file = null)
+    {
+        $svg = '';
+        if ($type === 'folder') {
+            $svg = Icon_Helper::svg_for_resource('folder');
+        } else {
+            $path = is_object($file) && isset($file->ID) ? (string) get_attached_file((int) $file->ID) : '';
+            $mime = is_object($file) && isset($file->ID) ? (string) get_post_mime_type((int) $file->ID) : '';
+            $svg = Icon_Helper::svg_for_resource('file', basename($path), $mime);
+        }
+
+        return '<span class="shared-docs-type-icon shared-docs-type-icon--' . esc_attr($type) . '">' . $svg . '</span>';
     }
 
     /**

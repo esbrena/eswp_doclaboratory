@@ -251,6 +251,14 @@
   width: min(920px, 95vw);
 }
 
+.shared-docs-modal-admin__dialog--fullscreen {
+  width: min(1400px, 98vw);
+  height: 94vh;
+  margin: 2vh auto;
+  display: flex;
+  flex-direction: column;
+}
+
 .shared-docs-modal-admin__header {
   display: flex;
   justify-content: space-between;
@@ -260,6 +268,11 @@
 
 .shared-docs-modal-admin__header h3 {
   margin: 0;
+}
+
+.shared-docs-modal-admin__body {
+  flex: 1 1 auto;
+  overflow: auto;
 }
 
 .shared-docs-modal-admin__footer {
@@ -321,8 +334,9 @@
 
 .shared-docs-type-icon {
   display: inline-flex;
-  width: 40px;
-  height: 26px;
+  width: 28px;
+  height: 32px;
+  vertical-align: middle;
 }
 
 .shared-docs-type-icon svg {
@@ -330,23 +344,9 @@
   height: 100%;
 }
 
-.shared-docs-type-icon rect {
-  fill: #ffffff;
-  stroke: #94a3b8;
-  stroke-width: 1.2;
-}
-
-.shared-docs-type-icon--folder rect {
-  fill: #eaf1ff;
-  stroke: #3b82f6;
-}
-
-.shared-docs-type-icon text {
-  fill: #0f172a;
-  font-size: 11px;
-  font-weight: 700;
-  font-family: Arial, sans-serif;
-  letter-spacing: 0.4px;
+.shared-docs-type-icon--folder {
+  width: 34px;
+  height: 30px;
 }
 
 .shared-docs-switch-row {
@@ -395,4 +395,17 @@
 
 .shared-docs-switch input:checked + .shared-docs-slider:before {
   transform: translateX(24px);
+}
+
+.shared-docs-preview-frame {
+  width: 100%;
+  min-height: 70vh;
+  border: 0;
+}
+
+.shared-docs-preview-image {
+  max-width: 100%;
+  max-height: 70vh;
+  display: block;
+  margin: 0 auto;
 }
