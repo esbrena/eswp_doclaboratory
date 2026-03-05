@@ -29,6 +29,9 @@
   margin: 10px 0 6px;
   font-weight: 600;
 }
+#shared-docs-resource-search {
+  margin-bottom:10px;
+}
 
 .shared-docs-admin-wrap input[type="text"],
 .shared-docs-admin-wrap input[type="datetime-local"],
@@ -43,9 +46,11 @@
 }
 
 .shared-docs-admin-wrap fieldset.shared-docs-checkboxes {
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  margin-top: 10px;
+      border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    margin-top: 10px;
+    padding: 8px;
+    background: #f7f7f7;
 }
 
 .shared-docs-admin-wrap fieldset.shared-docs-checkboxes label {
@@ -116,7 +121,9 @@
 }
 
 .shared-docs-tree__icon {
-  font-size: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .shared-docs-tree__label {
@@ -177,6 +184,11 @@
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-wrap: wrap;
+}
+
+.shared-docs-tree-global-actions__buttons[hidden] {
+  display: none !important;
 }
 
 .shared-docs-accordion {
@@ -244,6 +256,14 @@
   width: min(920px, 95vw);
 }
 
+.shared-docs-modal-admin__dialog--fullscreen {
+  width: min(1400px, 98vw);
+  height: 94vh;
+  margin: 2vh auto;
+  display: flex;
+  flex-direction: column;
+}
+
 .shared-docs-modal-admin__header {
   display: flex;
   justify-content: space-between;
@@ -255,11 +275,43 @@
   margin: 0;
 }
 
+.shared-docs-modal-admin__body {
+  flex: 1 1 auto;
+  overflow: auto;
+}
+
 .shared-docs-modal-admin__footer {
   margin-top: 12px;
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.shared-docs-btn.is-loading,
+.button.is-loading,
+button.is-loading,
+input.is-loading {
+  position: relative;
+  pointer-events: none;
+  opacity: 0.85;
+  padding-right: 30px !important;
+}
+
+.shared-docs-btn.is-loading::after,
+.button.is-loading::after,
+button.is-loading::after,
+input.is-loading::after {
+  content: "";
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  margin-top: -7px;
+  border: 2px solid rgba(30, 41, 59, 0.45);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: shared-docs-spin 0.8s linear infinite;
 }
 
 .shared-docs-access-current {
@@ -281,6 +333,14 @@
   text-align: center;
 }
 
+.shared-docs-user-selector {
+  margin-top: 8px;
+}
+
+.shared-docs-user-selector [data-user-search] {
+  margin-bottom: 8px;
+}
+
 .shared-docs-user-checklist {
   display: grid;
   gap: 6px;
@@ -298,6 +358,27 @@
   gap: 8px;
   margin: 0 !important;
   font-weight: 400 !important;
+}
+
+.shared-docs-user-checklist__item[hidden] {
+  display: none !important;
+}
+
+.shared-docs-type-icon {
+  display: inline-flex;
+  width: 28px;
+  height: 32px;
+  vertical-align: middle;
+}
+
+.shared-docs-type-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.shared-docs-type-icon--folder {
+  width: 34px;
+  height: 30px;
 }
 
 .shared-docs-switch-row {
@@ -346,4 +427,53 @@
 
 .shared-docs-switch input:checked + .shared-docs-slider:before {
   transform: translateX(24px);
+}
+
+.shared-docs-preview-frame {
+  width: 100%;
+  height: 70vh;
+  min-height: 70vh;
+  border: 0;
+  display: block;
+}
+
+.shared-docs-preview-image {
+  max-width: 100%;
+  max-height: 70vh;
+  display: block;
+  margin: 0 auto;
+}
+
+.shared-docs-excel-table td.shared-docs-excel-table__readonly {
+  background: #f8fafc;
+}
+
+.shared-docs-excel-table td.shared-docs-excel-table__readonly:focus {
+  outline: none;
+}
+
+.shared-docs-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #475569;
+}
+
+.shared-docs-loading__spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #94a3b8;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: shared-docs-spin 0.8s linear infinite;
+}
+
+@keyframes shared-docs-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

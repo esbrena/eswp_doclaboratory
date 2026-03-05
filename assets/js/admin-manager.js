@@ -6,70 +6,257 @@
   const permissionsByFile = adminData.permissionsByFile || {};
   const userPermissionsHtmlByUser = adminData.userPermissionsHtmlByUser || {};
   const excelHistoryByFile = adminData.excelHistoryByFile || {};
+  const restBase = adminData.restBase || "";
+  const restNonce = adminData.nonce || "";
+  const messages = adminData.messages || {};
 
-  const getSelectedItems = () => {
-    const selected = Array.from(document.querySelectorAll(".shared-docs-item-checkbox:checked"));
-    const folderIds = [];
-    const fileIds = [];
+  const parseCheckboxItem = (checkbox) => {
+    if (!checkbox) {
+      return null;
+    }
 
-    selected.forEach((checkbox) => {
-      const itemType = checkbox.getAttribute("data-item-type");
-      const itemId = checkbox.getAttribute("data-item-id");
-      if (!itemId) {
-        return;
-      }
+    const type = checkbox.getAttribute("data-item-type") || "";
+    const id = checkbox.getAttribute("data-item-id") || "";
+    if (!type || !id) {
+      return null;
+    }
 
-      if (itemType === "folder") {
-        folderIds.push(itemId);
-      } else if (itemType === "file") {
-        fileIds.push(itemId);
-      }
-    });
-
+    const invalidTargetsRaw = checkbox.getAttribute("data-invalid-targets") || "";
     return {
-      selected,
-      folderIds,
-      fileIds,
-      total: folderIds.length + fileIds.length,
+      checkbox,
+      type,
+      id,
+      label: checkbox.getAttribute("data-item-label") || "",
+      currentFolder: checkbox.getAttribute("data-current-folder") || "0",
+      invalidTargets: invalidTargetsRaw
+        .split(",")
+        .map((value) => value.trim())
+        .filter((value) => value !== ""),
+      openUrl: checkbox.getAttribute("data-open-url") || "",
+      downloadUrl: checkbox.getAttribute("data-download-url") || "",
+      isExcel: checkbox.getAttribute("data-is-excel") === "1",
+      canEditExcel: checkbox.getAttribute("data-can-edit-excel") === "1",
+      mimeType: checkbox.getAttribute("data-mime-type") || "",
+      filename: checkbox.getAttribute("data-filename") || "",
     };
   };
 
-  const setupOptionsSelectAllSwitches = () => {
-    const switches = Array.from(document.querySelectorAll("[data-select-all-options]"));
-    switches.forEach((switchEl) => {
-      const selector = switchEl.getAttribute("data-select-all-options");
-      if (!selector) {
+  const getSelectedItems = () => {
+    const checked = Array.from(document.querySelectorAll(".shared-docs-item-checkbox:checked"));
+    const items = checked.map(parseCheckboxItem).filter(Boolean);
+    const folderIds = items.filter((item) => item.type === "folder").map((item) => item.id);
+    const fileIds = items.filter((item) => item.type === "file").map((item) => item.id);
+
+    return {
+      items,
+      folderIds,
+      fileIds,
+      total: items.length,
+    };
+  };
+
+  const toApiUrl = (path) => `${restBase}${path}`.replace(/([^:]\/)\/+/g, "$1");
+
+  const requestJson = async (path, options = {}) => {
+    const response = await fetch(toApiUrl(path), {
+      method: options.method || "GET",
+      headers: {
+        "X-WP-Nonce": restNonce,
+        "Content-Type": "application/json",
+      },
+      credentials: "same-origin",
+      body: options.body ? JSON.stringify(options.body) : undefined,
+    });
+
+    if (!response.ok) {
+      let message = messages.requestError || "Error de comunicación con el servidor.";
+      try {
+        const json = await response.json();
+        if (json && json.message) {
+          message = json.message;
+        }
+      } catch (e) {
+        // noop
+      }
+      throw new Error(message);
+    }
+
+    return response.json();
+  };
+
+  const requestBlob = async (path) => {
+    const response = await fetch(toApiUrl(path), {
+      method: "GET",
+      headers: {
+        "X-WP-Nonce": restNonce,
+      },
+      credentials: "same-origin",
+    });
+
+    if (!response.ok) {
+      let message = messages.downloadError || "No se pudo descargar el archivo.";
+      try {
+        const json = await response.json();
+        if (json && json.message) {
+          message = json.message;
+        }
+      } catch (e) {
+        // noop
+      }
+      throw new Error(message);
+    }
+
+    return response.blob();
+  };
+
+  const setButtonLoading = (button, loading, loadingText) => {
+    if (!button) {
+      return;
+    }
+    const isInput = button.tagName === "INPUT";
+    const readLabel = () => (isInput ? button.value : button.textContent || "");
+    const writeLabel = (value) => {
+      if (isInput) {
+        button.value = value;
+      } else {
+        button.textContent = value;
+      }
+    };
+    if (loading) {
+      if (!button.dataset.originalLabel) {
+        button.dataset.originalLabel = readLabel();
+      }
+      button.disabled = true;
+      button.classList.add("is-loading");
+      button.setAttribute("aria-busy", "true");
+      if (loadingText) {
+        writeLabel(loadingText);
+      }
+      return;
+    }
+
+    button.disabled = false;
+    button.classList.remove("is-loading");
+    button.removeAttribute("aria-busy");
+    if (button.dataset.originalLabel) {
+      writeLabel(button.dataset.originalLabel);
+    }
+  };
+
+  const setContainerLoading = (container, message) => {
+    if (!container) {
+      return {
+        stop: () => {},
+      };
+    }
+    container.innerHTML = "";
+    const loading = document.createElement("div");
+    loading.className = "shared-docs-loading";
+    const spinner = document.createElement("span");
+    spinner.className = "shared-docs-loading__spinner";
+    const text = document.createElement("span");
+    text.textContent = message || "Cargando...";
+    loading.appendChild(spinner);
+    loading.appendChild(text);
+    container.appendChild(loading);
+
+    return {
+      stop: () => {
+        if (loading.parentNode === container) {
+          container.removeChild(loading);
+        }
+      },
+    };
+  };
+
+  const setupFormSubmitLoading = () => {
+    const forms = Array.from(document.querySelectorAll(".shared-docs-admin-wrap form"));
+    forms.forEach((form) => {
+      form.addEventListener("submit", (event) => {
+        if (form.dataset.submitting === "1") {
+          event.preventDefault();
+          return;
+        }
+        form.dataset.submitting = "1";
+        const submitButtons = Array.from(
+          form.querySelectorAll('button[type="submit"], input[type="submit"]')
+        );
+        submitButtons.forEach((button) => {
+          setButtonLoading(button, true, messages.processing || "Procesando...");
+        });
+      });
+    });
+  };
+
+  const setupUserSelectors = () => {
+    const selectors = Array.from(document.querySelectorAll("[data-user-selector]"));
+    selectors.forEach((container) => {
+      const searchInput = container.querySelector("[data-user-search]");
+      const master = container.querySelector("[data-user-select-all]");
+      const items = Array.from(container.querySelectorAll("[data-user-item]"));
+      const checkboxes = Array.from(container.querySelectorAll(".shared-docs-user-checkbox"));
+
+      if (!checkboxes.length) {
         return;
       }
 
-      const target = document.querySelector(selector);
-      if (!target) {
-        return;
-      }
+      const visibleCheckboxes = () =>
+        items
+          .filter((item) => !item.hidden)
+          .map((item) => item.querySelector(".shared-docs-user-checkbox"))
+          .filter(Boolean);
 
-      const syncSwitch = () => {
-        const options = Array.from(target.options);
-        const selected = options.filter((option) => option.selected).length;
-        switchEl.checked = selected > 0 && selected === options.length;
-        switchEl.indeterminate = selected > 0 && selected < options.length;
+      const syncMaster = () => {
+        if (!master) {
+          return;
+        }
+
+        const visibles = visibleCheckboxes();
+        if (!visibles.length) {
+          master.checked = false;
+          master.indeterminate = false;
+          return;
+        }
+
+        const checkedCount = visibles.filter((checkbox) => checkbox.checked).length;
+        master.checked = checkedCount === visibles.length;
+        master.indeterminate = checkedCount > 0 && checkedCount < visibles.length;
       };
 
-      switchEl.addEventListener("change", () => {
-        Array.from(target.options).forEach((option) => {
-          option.selected = switchEl.checked;
+      if (master) {
+        master.addEventListener("change", () => {
+          visibleCheckboxes().forEach((checkbox) => {
+            checkbox.checked = master.checked;
+          });
+          syncMaster();
         });
-        syncSwitch();
+      }
+
+      checkboxes.forEach((checkbox) => {
+        checkbox.addEventListener("change", syncMaster);
       });
 
-      target.addEventListener("change", syncSwitch);
-      syncSwitch();
+      if (searchInput) {
+        searchInput.addEventListener("input", () => {
+          const term = (searchInput.value || "").trim().toLowerCase();
+          items.forEach((item) => {
+            const text = (item.textContent || "").toLowerCase();
+            item.hidden = term !== "" && text.indexOf(term) === -1;
+          });
+          syncMaster();
+        });
+      }
+
+      syncMaster();
     });
   };
 
   const setupSingleMoveModal = () => {
     const modal = document.querySelector("[data-shared-move-modal]");
     if (!modal) {
-      return;
+      return {
+        open: () => {},
+      };
     }
 
     const itemTypeInput = modal.querySelector("[data-move-item-type]");
@@ -92,39 +279,35 @@
       }
     };
 
-    const openModal = (button) => {
-      const itemType = button.getAttribute("data-item-type") || "";
-      const itemId = button.getAttribute("data-item-id") || "";
-      const currentFolder = button.getAttribute("data-current-folder") || "0";
-      const label = button.getAttribute("data-item-label") || "";
-      const invalidTargets = (button.getAttribute("data-invalid-targets") || "")
-        .split(",")
-        .map((value) => value.trim())
-        .filter((value) => value !== "");
+    const openFromItem = (item) => {
+      if (!item) {
+        return;
+      }
 
-      if (itemTypeInput) itemTypeInput.value = itemType;
-      if (itemIdInput) itemIdInput.value = itemId;
+      if (itemTypeInput) itemTypeInput.value = item.type;
+      if (itemIdInput) itemIdInput.value = item.id;
       if (itemLabel) {
-        itemLabel.textContent = label
-          ? "Elemento: " + label
+        itemLabel.textContent = item.label
+          ? "Elemento: " + item.label
           : "Selecciona la carpeta destino para mover el elemento.";
       }
 
       if (targetFolderSelect) {
         Array.from(targetFolderSelect.options).forEach((option) => {
           option.disabled = false;
-          if (itemType === "folder" && invalidTargets.includes(option.value)) {
+          if (item.type === "folder" && item.invalidTargets.includes(option.value)) {
             option.disabled = true;
           }
-          if (itemType === "file" && option.value === "0") {
+          if (item.type === "file" && option.value === "0") {
             option.disabled = true;
           }
         });
 
-        if (itemType === "file") {
-          targetFolderSelect.value = currentFolder && currentFolder !== "0" ? currentFolder : "";
+        if (item.type === "file") {
+          targetFolderSelect.value =
+            item.currentFolder && item.currentFolder !== "0" ? item.currentFolder : "";
         } else {
-          targetFolderSelect.value = currentFolder || "0";
+          targetFolderSelect.value = item.currentFolder || "0";
         }
       }
 
@@ -132,7 +315,18 @@
     };
 
     openButtons.forEach((button) => {
-      button.addEventListener("click", () => openModal(button));
+      button.addEventListener("click", () => {
+        openFromItem({
+          type: button.getAttribute("data-item-type") || "",
+          id: button.getAttribute("data-item-id") || "",
+          label: button.getAttribute("data-item-label") || "",
+          currentFolder: button.getAttribute("data-current-folder") || "0",
+          invalidTargets: (button.getAttribute("data-invalid-targets") || "")
+            .split(",")
+            .map((value) => value.trim())
+            .filter((value) => value !== ""),
+        });
+      });
     });
     closeButtons.forEach((button) => button.addEventListener("click", closeModal));
 
@@ -141,12 +335,18 @@
         closeModal();
       }
     });
+
+    return {
+      open: openFromItem,
+    };
   };
 
   const setupRenameModal = () => {
     const modal = document.querySelector("[data-shared-rename-modal]");
     if (!modal) {
-      return;
+      return {
+        open: () => {},
+      };
     }
 
     const folderIdInput = modal.querySelector("[data-rename-folder-id]");
@@ -160,28 +360,43 @@
       if (folderNameInput) folderNameInput.value = "";
     };
 
-    const openModal = (button) => {
-      const folderId = button.getAttribute("data-folder-id") || "";
-      const folderName = button.getAttribute("data-folder-name") || "";
-      if (folderIdInput) folderIdInput.value = folderId;
+    const openFromItem = (item) => {
+      if (!item || item.type !== "folder") {
+        return;
+      }
+
+      if (folderIdInput) folderIdInput.value = item.id;
       if (folderNameInput) {
-        folderNameInput.value = folderName;
+        folderNameInput.value = item.label || "";
         folderNameInput.focus();
         folderNameInput.select();
       }
+
       modal.hidden = false;
     };
 
     openButtons.forEach((button) => {
-      button.addEventListener("click", () => openModal(button));
+      button.addEventListener("click", () =>
+        openFromItem({
+          type: "folder",
+          id: button.getAttribute("data-folder-id") || "",
+          label: button.getAttribute("data-folder-name") || "",
+        })
+      );
     });
     closeButtons.forEach((button) => button.addEventListener("click", closeModal));
+
+    return {
+      open: openFromItem,
+    };
   };
 
   const setupAccessModal = () => {
     const modal = document.querySelector("[data-shared-access-modal]");
     if (!modal) {
-      return;
+      return {
+        open: () => {},
+      };
     }
 
     const itemLabel = modal.querySelector("[data-access-item-label]");
@@ -189,29 +404,8 @@
     const itemIdInput = modal.querySelector("[data-access-item-id]");
     const tableBody = modal.querySelector("[data-access-current-body]");
     const emptyRow = modal.querySelector("[data-access-current-empty]");
-    const selectAll = modal.querySelector("[data-access-select-all]");
-    const userCheckboxes = Array.from(modal.querySelectorAll(".shared-docs-access-user-checkbox"));
     const closeButtons = modal.querySelectorAll('[data-action="close-access-modal"]');
     const openButtons = Array.from(document.querySelectorAll(".shared-docs-open-access-modal"));
-
-    const syncSelectAll = () => {
-      if (!selectAll || !userCheckboxes.length) {
-        return;
-      }
-      const checkedCount = userCheckboxes.filter((checkbox) => checkbox.checked).length;
-      selectAll.checked = checkedCount > 0 && checkedCount === userCheckboxes.length;
-      selectAll.indeterminate = checkedCount > 0 && checkedCount < userCheckboxes.length;
-    };
-
-    if (selectAll && userCheckboxes.length) {
-      selectAll.addEventListener("change", () => {
-        userCheckboxes.forEach((checkbox) => {
-          checkbox.checked = selectAll.checked;
-        });
-        syncSelectAll();
-      });
-      userCheckboxes.forEach((checkbox) => checkbox.addEventListener("change", syncSelectAll));
-    }
 
     const clearRows = () => {
       if (!tableBody) {
@@ -240,6 +434,7 @@
       rows.forEach((row) => {
         const tr = document.createElement("tr");
         tr.setAttribute("data-access-row", "1");
+
         const userCell = document.createElement("td");
         userCell.textContent = row.user || "";
         tr.appendChild(userCell);
@@ -274,6 +469,7 @@
         revokeLink.textContent = "Revocar";
         revokeLink.setAttribute("data-access-revoke", "1");
         actionsCell.appendChild(revokeLink);
+
         const userPermissionsHtml = row.user_id ? userPermissionsHtmlByUser[row.user_id] : "";
         let detailRow = null;
         if (userPermissionsHtml) {
@@ -296,21 +492,17 @@
 
           detailsLink.addEventListener("click", (event) => {
             event.preventDefault();
-            if (detailRow) {
-              detailRow.hidden = !detailRow.hidden;
-            }
+            detailRow.hidden = !detailRow.hidden;
           });
         }
+
+        revokeLink.addEventListener("click", (event) => {
+          if (!window.confirm("¿Revocar este permiso?")) {
+            event.preventDefault();
+          }
+        });
+
         tr.appendChild(actionsCell);
-
-        if (revokeLink) {
-          revokeLink.addEventListener("click", (event) => {
-            if (!window.confirm("¿Revocar este permiso?")) {
-              event.preventDefault();
-            }
-          });
-        }
-
         tableBody.appendChild(tr);
         if (detailRow) {
           tableBody.appendChild(detailRow);
@@ -323,46 +515,249 @@
       if (itemLabel) itemLabel.textContent = "";
       if (itemTypeInput) itemTypeInput.value = "";
       if (itemIdInput) itemIdInput.value = "";
-      userCheckboxes.forEach((checkbox) => {
+      Array.from(modal.querySelectorAll(".shared-docs-user-checkbox")).forEach((checkbox) => {
         checkbox.checked = false;
       });
-      syncSelectAll();
+      Array.from(modal.querySelectorAll("[data-user-item]")).forEach((item) => {
+        item.hidden = false;
+      });
+      Array.from(modal.querySelectorAll("[data-user-search]")).forEach((input) => {
+        input.value = "";
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
       clearRows();
     };
 
-    const openModal = (button) => {
-      const itemType = button.getAttribute("data-item-type") || "";
-      const itemId = button.getAttribute("data-item-id") || "";
-      const label = button.getAttribute("data-item-label") || "";
+    const openFromItem = (item) => {
+      if (!item) {
+        return;
+      }
 
-      if (itemTypeInput) itemTypeInput.value = itemType;
-      if (itemIdInput) itemIdInput.value = itemId;
+      Array.from(modal.querySelectorAll(".shared-docs-user-checkbox")).forEach((checkbox) => {
+        checkbox.checked = false;
+      });
+      Array.from(modal.querySelectorAll("[data-user-item]")).forEach((itemEl) => {
+        itemEl.hidden = false;
+      });
+      Array.from(modal.querySelectorAll("[data-user-search]")).forEach((inputEl) => {
+        inputEl.value = "";
+        inputEl.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+
+      if (itemTypeInput) itemTypeInput.value = item.type;
+      if (itemIdInput) itemIdInput.value = item.id;
       if (itemLabel) {
-        itemLabel.textContent = label
-          ? "Elemento: " + label
+        itemLabel.textContent = item.label
+          ? "Elemento: " + item.label
           : "Gestiona los permisos del elemento seleccionado.";
       }
 
       const rows =
-        itemType === "folder"
-          ? permissionsByFolder[itemId] || []
-          : itemType === "file"
-          ? permissionsByFile[itemId] || []
+        item.type === "folder"
+          ? permissionsByFolder[item.id] || []
+          : item.type === "file"
+          ? permissionsByFile[item.id] || []
           : [];
       renderRows(rows);
       modal.hidden = false;
     };
 
     openButtons.forEach((button) => {
-      button.addEventListener("click", () => openModal(button));
+      button.addEventListener("click", () =>
+        openFromItem({
+          type: button.getAttribute("data-item-type") || "",
+          id: button.getAttribute("data-item-id") || "",
+          label: button.getAttribute("data-item-label") || "",
+        })
+      );
     });
     closeButtons.forEach((button) => button.addEventListener("click", closeModal));
+
+    return {
+      open: openFromItem,
+    };
+  };
+
+  const setupAccessViewModal = () => {
+    const modal = document.querySelector("[data-shared-access-view-modal]");
+    if (!modal) {
+      return { open: () => {} };
+    }
+
+    const itemLabel = modal.querySelector("[data-access-item-label]");
+    const tableBody = modal.querySelector("[data-access-current-body]");
+    const emptyRow = modal.querySelector("[data-access-current-empty]");
+    const closeButtons = modal.querySelectorAll('[data-action="close-access-view-modal"]');
+    const openButtons = Array.from(document.querySelectorAll(".shared-docs-open-permissions-view-modal"));
+
+    const clearRows = () => {
+      if (!tableBody) return;
+      Array.from(tableBody.querySelectorAll("tr[data-access-row]")).forEach((row) => row.remove());
+      if (emptyRow) emptyRow.hidden = false;
+    };
+
+    const renderRows = (rows) => {
+      if (!tableBody) return;
+      clearRows();
+      if (!rows.length) return;
+      if (emptyRow) emptyRow.hidden = true;
+
+      rows.forEach((row) => {
+        const tr = document.createElement("tr");
+        tr.setAttribute("data-access-row", "1");
+        const userCell = document.createElement("td");
+        userCell.textContent = row.user || "";
+        tr.appendChild(userCell);
+        const readCell = document.createElement("td");
+        readCell.textContent = row.can_read ? "✔" : "—";
+        tr.appendChild(readCell);
+        const downloadCell = document.createElement("td");
+        downloadCell.textContent = row.can_download ? "✔" : "—";
+        tr.appendChild(downloadCell);
+        const editCell = document.createElement("td");
+        editCell.textContent = row.can_edit_excel ? "✔" : "—";
+        tr.appendChild(editCell);
+        const expiresCell = document.createElement("td");
+        expiresCell.textContent = row.expires_at || "";
+        tr.appendChild(expiresCell);
+        const actionsCell = document.createElement("td");
+        const detailsLink = document.createElement("a");
+        detailsLink.href = row.edit_url || "#";
+        detailsLink.textContent = "Editar";
+        actionsCell.appendChild(detailsLink);
+        const separator = document.createTextNode(" | ");
+        actionsCell.appendChild(separator);
+        const revokeLink = document.createElement("a");
+        revokeLink.href = row.revoke_url || "#";
+        revokeLink.textContent = "Revocar";
+        revokeLink.addEventListener("click", (event) => {
+          if (!window.confirm("¿Revocar este permiso?")) {
+            event.preventDefault();
+          }
+        });
+        actionsCell.appendChild(revokeLink);
+
+        const userPermissionsHtml = row.user_id ? userPermissionsHtmlByUser[row.user_id] : "";
+        let detailsRow = null;
+        if (userPermissionsHtml) {
+          actionsCell.appendChild(document.createTextNode(" | "));
+          const userLink = document.createElement("a");
+          userLink.href = "#";
+          userLink.textContent = "Ver permisos usuario";
+          actionsCell.appendChild(userLink);
+
+          detailsRow = document.createElement("tr");
+          detailsRow.setAttribute("data-access-row", "1");
+          detailsRow.hidden = true;
+          const detailsCell = document.createElement("td");
+          detailsCell.colSpan = 6;
+          detailsCell.className = "shared-docs-access-user-details";
+          detailsCell.innerHTML = userPermissionsHtml;
+          detailsRow.appendChild(detailsCell);
+
+          userLink.addEventListener("click", (event) => {
+            event.preventDefault();
+            detailsRow.hidden = !detailsRow.hidden;
+          });
+        }
+
+        tr.appendChild(actionsCell);
+        tableBody.appendChild(tr);
+        if (detailsRow) tableBody.appendChild(detailsRow);
+      });
+    };
+
+    const closeModal = () => {
+      modal.hidden = true;
+      if (itemLabel) itemLabel.textContent = "";
+      clearRows();
+    };
+
+    const open = (item) => {
+      if (!item) return;
+      if (itemLabel) {
+        itemLabel.textContent = item.label ? `Elemento: ${item.label}` : "";
+      }
+      const rows =
+        item.type === "folder"
+          ? permissionsByFolder[item.id] || []
+          : item.type === "file"
+          ? permissionsByFile[item.id] || []
+          : [];
+      renderRows(rows);
+      modal.hidden = false;
+    };
+
+    openButtons.forEach((button) => {
+      button.addEventListener("click", () =>
+        open({
+          type: button.getAttribute("data-item-type") || "",
+          id: button.getAttribute("data-item-id") || "",
+          label: button.getAttribute("data-item-label") || "",
+        })
+      );
+    });
+    closeButtons.forEach((button) => button.addEventListener("click", closeModal));
+
+    return { open };
+  };
+
+  const setupAccessManageModal = () => {
+    const modal = document.querySelector("[data-shared-access-manage-modal]");
+    if (!modal) {
+      return { open: () => {} };
+    }
+    const itemLabel = modal.querySelector("[data-access-item-label]");
+    const itemTypeInput = modal.querySelector("[data-access-item-type]");
+    const itemIdInput = modal.querySelector("[data-access-item-id]");
+    const closeButtons = modal.querySelectorAll('[data-action="close-access-manage-modal"]');
+    const openButtons = Array.from(document.querySelectorAll(".shared-docs-open-permissions-manage-modal"));
+
+    const closeModal = () => {
+      modal.hidden = true;
+      if (itemLabel) itemLabel.textContent = "";
+      if (itemTypeInput) itemTypeInput.value = "";
+      if (itemIdInput) itemIdInput.value = "";
+      Array.from(modal.querySelectorAll(".shared-docs-user-checkbox")).forEach((checkbox) => {
+        checkbox.checked = false;
+      });
+      Array.from(modal.querySelectorAll("[data-user-item]")).forEach((item) => {
+        item.hidden = false;
+      });
+      Array.from(modal.querySelectorAll("[data-user-search]")).forEach((input) => {
+        input.value = "";
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    };
+
+    const open = (item) => {
+      if (!item) return;
+      if (itemTypeInput) itemTypeInput.value = item.type;
+      if (itemIdInput) itemIdInput.value = item.id;
+      if (itemLabel) itemLabel.textContent = item.label ? `Elemento: ${item.label}` : "";
+      modal.hidden = false;
+    };
+
+    openButtons.forEach((button) => {
+      button.addEventListener("click", () =>
+        open({
+          type: button.getAttribute("data-item-type") || "",
+          id: button.getAttribute("data-item-id") || "",
+          label: button.getAttribute("data-item-label") || "",
+        })
+      );
+    });
+    closeButtons.forEach((button) => button.addEventListener("click", closeModal));
+
+    return { open };
   };
 
   const setupHistoryModal = () => {
     const modal = document.querySelector("[data-shared-history-modal]");
     if (!modal) {
-      return;
+      return {
+        open: () => {},
+      };
     }
 
     const label = modal.querySelector("[data-history-item-label]");
@@ -387,14 +782,15 @@
       clearRows();
     };
 
-    const openModal = (button) => {
-      const fileId = button.getAttribute("data-file-id") || "";
-      const fileLabel = button.getAttribute("data-file-label") || "";
-      const rows = excelHistoryByFile[fileId] || [];
+    const openFromItem = (item) => {
+      if (!item || item.type !== "file") {
+        return;
+      }
 
+      const rows = excelHistoryByFile[item.id] || [];
       clearRows();
       if (label) {
-        label.textContent = fileLabel ? "Archivo: " + fileLabel : "";
+        label.textContent = item.label ? "Archivo: " + item.label : "";
       }
 
       if (rows.length && tableBody) {
@@ -419,24 +815,313 @@
     };
 
     openButtons.forEach((button) => {
-      button.addEventListener("click", () => openModal(button));
+      button.addEventListener("click", () =>
+        openFromItem({
+          type: "file",
+          id: button.getAttribute("data-file-id") || "",
+          label: button.getAttribute("data-file-label") || "",
+        })
+      );
     });
     closeButtons.forEach((button) => button.addEventListener("click", closeModal));
+
+    return {
+      open: openFromItem,
+    };
   };
 
-  const setupBulkSelectionActions = () => {
+  const setupFileModal = () => {
+    const modal = document.querySelector("[data-shared-file-modal]");
+    if (!modal) {
+      return {
+        open: () => {},
+      };
+    }
+
+    const title = modal.querySelector("[data-file-modal-title]");
+    const previewWrap = modal.querySelector("[data-file-preview-wrap]");
+    const excelWrap = modal.querySelector("[data-file-excel-wrap]");
+    const excelTable = modal.querySelector("[data-file-excel-table]");
+    const saveExcelButton = modal.querySelector('[data-action="file-modal-save-excel"]');
+    const downloadButton = modal.querySelector('[data-action="file-modal-download"]');
+    const closeButtons = modal.querySelectorAll('[data-action="close-file-modal"]');
+
+    const state = {
+      item: null,
+      sheetName: "",
+      bookType: "xlsx",
+      busy: false,
+      excelEditable: false,
+      previewObjectUrl: "",
+    };
+
+    const closeModal = () => {
+      if (state.busy) {
+        return;
+      }
+      modal.hidden = true;
+      state.item = null;
+      state.sheetName = "";
+      state.bookType = "xlsx";
+      state.excelEditable = false;
+      if (previewWrap) previewWrap.innerHTML = "";
+      if (excelTable) excelTable.innerHTML = "";
+      if (excelWrap) excelWrap.hidden = true;
+      if (saveExcelButton) saveExcelButton.hidden = true;
+      if (state.previewObjectUrl) {
+        window.URL.revokeObjectURL(state.previewObjectUrl);
+        state.previewObjectUrl = "";
+      }
+    };
+
+    const loadExcel = async (item, editable) => {
+      if (!window.XLSX) {
+        throw new Error(messages.excelLoadError || "No se pudo abrir el archivo Excel.");
+      }
+      const loading = setContainerLoading(previewWrap, messages.loading || "Cargando...");
+      try {
+        const blob = await requestBlob(`download/${item.id}`);
+        const buffer = await blob.arrayBuffer();
+        const workbook = window.XLSX.read(buffer, { type: "array" });
+        const sheetName = workbook.SheetNames[0];
+        const firstSheet = workbook.Sheets[sheetName];
+        const rows = window.XLSX.utils.sheet_to_json(firstSheet, {
+          header: 1,
+          raw: false,
+          blankrows: true,
+        });
+
+        state.sheetName = sheetName || "Sheet1";
+        const ext = String(item.filename || "").split(".").pop().toLowerCase();
+        state.bookType = ext && ["xls", "xlsx", "xlsm", "xlsb", "csv", "ods"].includes(ext) ? ext : "xlsx";
+        state.excelEditable = !!editable;
+
+        excelTable.innerHTML = "";
+        const maxColumns = Math.max(1, ...rows.map((row) => row.length));
+        const tbody = document.createElement("tbody");
+        rows.forEach((rowData) => {
+          const tr = document.createElement("tr");
+          for (let col = 0; col < maxColumns; col += 1) {
+            const td = document.createElement("td");
+            td.contentEditable = editable ? "true" : "false";
+            if (!editable) {
+              td.classList.add("shared-docs-excel-table__readonly");
+            }
+            td.textContent = rowData[col] !== undefined ? rowData[col] : "";
+            tr.appendChild(td);
+          }
+          tbody.appendChild(tr);
+        });
+        if (!rows.length) {
+          const tr = document.createElement("tr");
+          const td = document.createElement("td");
+          td.contentEditable = editable ? "true" : "false";
+          if (!editable) {
+            td.classList.add("shared-docs-excel-table__readonly");
+          }
+          td.textContent = "";
+          tr.appendChild(td);
+          tbody.appendChild(tr);
+        }
+        excelTable.appendChild(tbody);
+        excelWrap.hidden = false;
+        if (saveExcelButton) saveExcelButton.hidden = !editable;
+        if (previewWrap) {
+          previewWrap.innerHTML = "";
+          const hint = document.createElement("p");
+          hint.className = "description";
+          hint.textContent = editable
+            ? "Modo edición activo."
+            : "Vista previa en solo lectura. No tienes permisos para editar este Excel.";
+          previewWrap.appendChild(hint);
+        }
+      } finally {
+        loading.stop();
+      }
+    };
+
+    const loadPreview = async (item) => {
+      if (previewWrap) previewWrap.innerHTML = "";
+      let previewUrl = item.openUrl || "";
+      if (!previewUrl) {
+        const blob = await requestBlob(`download/${item.id}`);
+        previewUrl = window.URL.createObjectURL(blob);
+        state.previewObjectUrl = previewUrl;
+      }
+      if ((item.mimeType || "").toLowerCase().startsWith("image/")) {
+        const img = document.createElement("img");
+        img.src = previewUrl;
+        img.className = "shared-docs-preview-image";
+        img.alt = item.label || "";
+        previewWrap.appendChild(img);
+      } else {
+        const objectEl = document.createElement("object");
+        objectEl.data = previewUrl;
+        objectEl.type = "application/pdf";
+        objectEl.className = "shared-docs-preview-frame";
+        const fallback = document.createElement("p");
+        fallback.className = "description";
+        const openLink = document.createElement("a");
+        openLink.href = previewUrl || "#";
+        openLink.target = "_blank";
+        openLink.rel = "noopener";
+        openLink.textContent = "Abrir PDF en una nueva pestaña";
+        fallback.appendChild(openLink);
+        objectEl.appendChild(fallback);
+        previewWrap.appendChild(objectEl);
+      }
+      if (excelWrap) excelWrap.hidden = true;
+      if (saveExcelButton) saveExcelButton.hidden = true;
+    };
+
+    const openFromItem = async (item) => {
+      if (!item || item.type !== "file" || state.busy) {
+        return;
+      }
+      state.item = item;
+      state.busy = true;
+      if (title) {
+        title.textContent =
+          item.isExcel && !item.canEditExcel
+            ? `${item.label || "Archivo"} · Vista previa Excel`
+            : item.label || "Abrir archivo";
+      }
+      modal.hidden = false;
+      if (saveExcelButton) saveExcelButton.hidden = true;
+      if (excelWrap) excelWrap.hidden = true;
+      setContainerLoading(previewWrap, messages.loading || "Cargando...");
+
+      try {
+        const mime = (item.mimeType || "").toLowerCase();
+        if (item.isExcel) {
+          await loadExcel(item, !!item.canEditExcel);
+          state.busy = false;
+          return;
+        }
+        if (mime === "application/pdf" || mime.startsWith("image/")) {
+          await loadPreview(item);
+          state.busy = false;
+          return;
+        }
+        if (item.downloadUrl) {
+          window.location.href = item.downloadUrl;
+        } else if (item.openUrl) {
+          window.open(item.openUrl, "_blank", "noopener");
+        }
+        state.busy = false;
+        closeModal();
+      } catch (error) {
+        state.busy = false;
+        alert(error.message || messages.requestError || "Error de comunicación con el servidor.");
+        closeModal();
+      }
+    };
+
+    closeButtons.forEach((button) => {
+      button.addEventListener("click", closeModal);
+    });
+
+    if (downloadButton) {
+      downloadButton.addEventListener("click", () => {
+        if (!state.item || state.busy) return;
+        setButtonLoading(downloadButton, true, messages.processing || "Procesando...");
+        state.busy = true;
+        if (state.item.downloadUrl) {
+          window.location.href = state.item.downloadUrl;
+          window.setTimeout(() => {
+            state.busy = false;
+            setButtonLoading(downloadButton, false);
+          }, 900);
+          return;
+        }
+        if (state.item.openUrl) {
+          window.open(state.item.openUrl, "_blank", "noopener");
+        }
+        state.busy = false;
+        setButtonLoading(downloadButton, false);
+      });
+    }
+
+    if (saveExcelButton) {
+      saveExcelButton.addEventListener("click", async () => {
+        if (!state.item || !window.XLSX || !excelTable || !state.excelEditable || state.busy) {
+          return;
+        }
+        state.busy = true;
+        setButtonLoading(saveExcelButton, true, messages.processing || "Procesando...");
+        try {
+          const rows = [];
+          excelTable.querySelectorAll("tr").forEach((rowEl) => {
+            const row = [];
+            rowEl.querySelectorAll("td").forEach((cellEl) => {
+              row.push(cellEl.textContent || "");
+            });
+            rows.push(row);
+          });
+          const workbook = window.XLSX.utils.book_new();
+          const worksheet = window.XLSX.utils.aoa_to_sheet(rows);
+          window.XLSX.utils.book_append_sheet(workbook, worksheet, state.sheetName || "Sheet1");
+          const workbookBase64 = window.XLSX.write(workbook, {
+            bookType: state.bookType || "xlsx",
+            type: "base64",
+          });
+          await requestJson("excel/save", {
+            method: "POST",
+            body: {
+              file_id: Number(state.item.id),
+              workbook_base64: workbookBase64,
+            },
+          });
+          alert(messages.excelSaveOk || "Cambios guardados correctamente.");
+          state.busy = false;
+          setButtonLoading(saveExcelButton, false);
+          closeModal();
+        } catch (error) {
+          state.busy = false;
+          setButtonLoading(saveExcelButton, false);
+          alert(error.message || messages.excelSaveError || "No se pudo guardar el archivo Excel.");
+        }
+      });
+    }
+
+    return {
+      open: openFromItem,
+    };
+  };
+
+  const setupTreeSelectionActions = (modalApis) => {
     const panel = document.querySelector("[data-tree-global-actions]");
     if (!panel) {
       return;
     }
 
     const countLabel = panel.querySelector("[data-tree-selection-count]");
+    const singleActions = panel.querySelector("[data-tree-actions-single]");
+    const multiActions = panel.querySelector("[data-tree-actions-multi]");
+
+    const singleOpenButton = panel.querySelector('[data-action="tree-single-open"]');
+    const singleDownloadButton = panel.querySelector('[data-action="tree-single-download"]');
+    const singleRenameButton = panel.querySelector('[data-action="tree-single-rename"]');
+    const singleAccessButton = panel.querySelector('[data-action="tree-single-access"]');
+    const singleHistoryButton = panel.querySelector('[data-action="tree-single-history"]');
+    const singleMoveButton = panel.querySelector('[data-action="tree-single-move"]');
+    const singleDeleteButton = panel.querySelector('[data-action="tree-single-delete"]');
+
     const deleteButton = panel.querySelector('[data-action="submit-bulk-delete"]');
     const openBulkMoveButton = panel.querySelector('[data-action="open-bulk-move-modal"]');
     const deleteForm = document.querySelector("[data-bulk-delete-form]");
     const deleteFolderInput = deleteForm ? deleteForm.querySelector("[data-bulk-folder-ids]") : null;
     const deleteFileInput = deleteForm ? deleteForm.querySelector("[data-bulk-file-ids]") : null;
+
     const checkboxes = Array.from(document.querySelectorAll(".shared-docs-item-checkbox"));
+    checkboxes.forEach((checkbox) => {
+      checkbox.addEventListener("click", (event) => {
+        event.stopPropagation();
+      });
+      checkbox.addEventListener("keydown", (event) => {
+        event.stopPropagation();
+      });
+    });
 
     const bulkMoveModal = document.querySelector("[data-shared-bulk-move-modal]");
     const bulkMoveFolderInput = bulkMoveModal ? bulkMoveModal.querySelector("[data-bulk-move-folder-ids]") : null;
@@ -445,6 +1130,7 @@
     const bulkMoveCloseButtons = bulkMoveModal
       ? bulkMoveModal.querySelectorAll('[data-action="close-bulk-move-modal"]')
       : [];
+    let submitLocked = false;
 
     const closeBulkMoveModal = () => {
       if (!bulkMoveModal) {
@@ -456,11 +1142,64 @@
       if (bulkMoveLabel) bulkMoveLabel.textContent = "";
     };
 
+    const submitDelete = (folderIds, fileIds) => {
+      if (!deleteForm || !deleteFolderInput || !deleteFileInput) {
+        return;
+      }
+      if (submitLocked) {
+        return;
+      }
+      submitLocked = true;
+      if (singleDeleteButton) setButtonLoading(singleDeleteButton, true, messages.processing || "Procesando...");
+      if (deleteButton) setButtonLoading(deleteButton, true, messages.processing || "Procesando...");
+
+      deleteFolderInput.value = (folderIds || []).join(",");
+      deleteFileInput.value = (fileIds || []).join(",");
+      deleteForm.submit();
+    };
+
+    const getSingleItem = () => {
+      const selected = getSelectedItems();
+      return selected.total === 1 ? selected.items[0] : null;
+    };
+
     const updatePanel = () => {
       const selected = getSelectedItems();
       panel.hidden = selected.total === 0;
+
       if (countLabel) {
-        countLabel.textContent = selected.total + " elementos seleccionados";
+        const label = selected.total === 1 ? "1 elemento seleccionado" : selected.total + " elementos seleccionados";
+        countLabel.textContent = label;
+      }
+
+      const singleItem = selected.total === 1 ? selected.items[0] : null;
+
+      if (singleActions) {
+        singleActions.hidden = !singleItem;
+      }
+      if (multiActions) {
+        multiActions.hidden = !(selected.total > 1);
+      }
+
+      if (singleItem) {
+        if (singleOpenButton) singleOpenButton.style.display = "none";
+        if (singleDownloadButton) singleDownloadButton.style.display = "none";
+        if (singleHistoryButton) singleHistoryButton.style.display = "none";
+        if (singleRenameButton) singleRenameButton.style.display = "none";
+
+        const isFile = singleItem.type === "file";
+        const isFolder = singleItem.type === "folder";
+
+        
+        if (isFile) { // FILE
+          if (singleOpenButton) singleOpenButton.style.display = "inline-block";
+          if (singleDownloadButton) singleDownloadButton.style.display = "inline-block";
+          if (isFile && singleItem.isExcel) {
+            if (singleHistoryButton) singleHistoryButton.style.display = "inline-block";
+          }
+        } else { // FOLDER
+          if (singleRenameButton) singleRenameButton.style.display = "inline-block";
+        }
       }
     };
 
@@ -469,10 +1208,98 @@
     });
     updatePanel();
 
-    if (deleteButton && deleteForm && deleteFolderInput && deleteFileInput) {
+    if (singleOpenButton) {
+      singleOpenButton.addEventListener("click", async () => {
+        const item = getSingleItem();
+        if (!item || item.type !== "file") {
+          return;
+        }
+        setButtonLoading(singleOpenButton, true, messages.processing || "Procesando...");
+        try {
+          await modalApis.file.open(item);
+        } finally {
+          setButtonLoading(singleOpenButton, false);
+        }
+      });
+    }
+
+    if (singleDownloadButton) {
+      singleDownloadButton.addEventListener("click", () => {
+        const item = getSingleItem();
+        if (!item || item.type !== "file") {
+          return;
+        }
+        if (item.downloadUrl) {
+          setButtonLoading(singleDownloadButton, true, messages.processing || "Procesando...");
+          window.location.href = item.downloadUrl;
+          window.setTimeout(() => setButtonLoading(singleDownloadButton, false), 900);
+          return;
+        }
+        if (item.openUrl) {
+          window.open(item.openUrl, "_blank", "noopener");
+        }
+      });
+    }
+
+    if (singleRenameButton) {
+      singleRenameButton.addEventListener("click", () => {
+        const item = getSingleItem();
+        if (!item || item.type !== "folder") {
+          return;
+        }
+        modalApis.rename.open(item);
+      });
+    }
+
+    if (singleAccessButton) {
+      singleAccessButton.addEventListener("click", () => {
+        const item = getSingleItem();
+        if (!item) {
+          return;
+        }
+        modalApis.access.open(item);
+      });
+    }
+
+    if (singleHistoryButton) {
+      singleHistoryButton.addEventListener("click", () => {
+        const item = getSingleItem();
+        if (!item || item.type !== "file" || !item.isExcel) {
+          return;
+        }
+        modalApis.history.open(item);
+      });
+    }
+
+    if (singleMoveButton) {
+      singleMoveButton.addEventListener("click", () => {
+        const item = getSingleItem();
+        if (!item) {
+          return;
+        }
+        modalApis.move.open(item);
+      });
+    }
+
+    if (singleDeleteButton) {
+      singleDeleteButton.addEventListener("click", () => {
+        const item = getSingleItem();
+        if (!item) {
+          return;
+        }
+
+        if (!window.confirm("¿Borrar el elemento seleccionado? Esta acción no se puede deshacer.")) {
+          return;
+        }
+
+        submitDelete(item.type === "folder" ? [item.id] : [], item.type === "file" ? [item.id] : []);
+      });
+    }
+
+    if (deleteButton) {
       deleteButton.addEventListener("click", () => {
         const selected = getSelectedItems();
-        if (!selected.total) {
+        if (selected.total <= 1) {
           return;
         }
 
@@ -480,16 +1307,14 @@
           return;
         }
 
-        deleteFolderInput.value = selected.folderIds.join(",");
-        deleteFileInput.value = selected.fileIds.join(",");
-        deleteForm.submit();
+        submitDelete(selected.folderIds, selected.fileIds);
       });
     }
 
     if (openBulkMoveButton && bulkMoveModal && bulkMoveFolderInput && bulkMoveFileInput) {
       openBulkMoveButton.addEventListener("click", () => {
         const selected = getSelectedItems();
-        if (!selected.total) {
+        if (selected.total <= 1) {
           return;
         }
 
@@ -539,11 +1364,21 @@
     applyFilter();
   };
 
-  setupOptionsSelectAllSwitches();
-  setupSingleMoveModal();
-  setupRenameModal();
-  setupAccessModal();
-  setupHistoryModal();
-  setupBulkSelectionActions();
+  setupUserSelectors();
+  setupFormSubmitLoading();
+  const moveModalApi = setupSingleMoveModal();
+  const renameModalApi = setupRenameModal();
+  const accessModalApi = setupAccessModal();
+  setupAccessViewModal();
+  setupAccessManageModal();
+  const historyModalApi = setupHistoryModal();
+  const fileModalApi = setupFileModal();
+  setupTreeSelectionActions({
+    move: moveModalApi,
+    rename: renameModalApi,
+    access: accessModalApi,
+    history: historyModalApi,
+    file: fileModalApi,
+  });
   setupResourceSearch();
 })();

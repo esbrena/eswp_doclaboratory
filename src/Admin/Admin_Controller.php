@@ -3,6 +3,7 @@
 namespace SharedDocsManager\Admin;
 
 use SharedDocsManager\Helpers\File_Helper;
+use SharedDocsManager\Helpers\Icon_Helper;
 use SharedDocsManager\Permissions\File_Permission_Repository;
 use SharedDocsManager\Permissions\Permission_Manager;
 use SharedDocsManager\Permissions\Permission_Repository;
@@ -64,6 +65,7 @@ class Admin_Controller
         add_action('admin_post_shared_docs_bulk_move_items', array($this, 'handle_bulk_move_items'));
         add_action('admin_post_shared_docs_bulk_delete_items', array($this, 'handle_bulk_delete_items'));
         add_action('admin_post_shared_docs_open_file', array($this, 'handle_open_file'));
+        add_action('admin_post_shared_docs_download_file', array($this, 'handle_download_file'));
         add_action('admin_post_shared_docs_add_item_access_bulk', array($this, 'handle_add_item_access_bulk'));
         add_action('admin_post_shared_docs_save_permission', array($this, 'handle_save_permission'));
         add_action('admin_post_shared_docs_save_file_permission', array($this, 'handle_save_file_permission'));
@@ -140,9 +142,17 @@ class Admin_Controller
         );
 
         wp_enqueue_script(
+            'shared-docs-sheetjs',
+            'https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js',
+            array(),
+            '0.20.2',
+            true
+        );
+
+        wp_enqueue_script(
             'shared-docs-admin',
             SHARED_DOCS_URL . 'assets/js/admin-manager.js',
-            array(),
+            array('shared-docs-sheetjs'),
             SHARED_DOCS_VERSION,
             true
         );
@@ -170,8 +180,15 @@ class Admin_Controller
             'permissionsByFile'   => $permissions_payload['by_file'],
             'userPermissionsHtmlByUser' => $permissions_payload['user_permissions_html'],
             'excelHistoryByFile'  => $excel_history_payload,
+            'restBase'            => trailingslashit(rest_url('shared-docs/v1')),
+            'nonce'               => wp_create_nonce('wp_rest'),
             'messages'            => array(
                 'bulkSelection' => __('%d elementos seleccionados', 'shared-docs-manager'),
+                'requestError'  => __('Error de comunicación con el servidor.', 'shared-docs-manager'),
+                'downloadError' => __('No se pudo descargar el archivo.', 'shared-docs-manager'),
+                'excelLoadError'=> __('No se pudo abrir el archivo Excel.', 'shared-docs-manager'),
+                'excelSaveError'=> __('No se pudo guardar el archivo Excel.', 'shared-docs-manager'),
+                'excelSaveOk'   => __('Cambios guardados correctamente.', 'shared-docs-manager'),
             ),
         );
         wp_add_inline_script('shared-docs-admin', 'window.SharedDocsAdminData = ' . wp_json_encode($inline_data) . ';', 'before');
@@ -234,7 +251,16 @@ class Admin_Controller
                 <h2><?php esc_html_e('Árbol de carpetas y archivos', 'shared-docs-manager'); ?></h2>
                 <div class="shared-docs-tree-global-actions" data-tree-global-actions hidden>
                     <div class="shared-docs-tree-global-actions__info" data-tree-selection-count></div>
-                    <div class="shared-docs-tree-global-actions__buttons">
+                    <div class="shared-docs-tree-global-actions__buttons" data-tree-actions-single hidden>
+                        <button type="button" class="button" data-action="tree-single-open" hidden><?php esc_html_e('Abrir', 'shared-docs-manager'); ?></button>
+                        <button type="button" class="button" data-action="tree-single-download" hidden><?php esc_html_e('Descargar', 'shared-docs-manager'); ?></button>
+                        <button type="button" class="button" data-action="tree-single-rename" hidden><?php esc_html_e('Editar nombre', 'shared-docs-manager'); ?></button>
+                        <button type="button" class="button" data-action="tree-single-access"><?php esc_html_e('Administrar acceso', 'shared-docs-manager'); ?></button>
+                        <button type="button" class="button" data-action="tree-single-history" hidden><?php esc_html_e('Histórico', 'shared-docs-manager'); ?></button>
+                        <button type="button" class="button" data-action="tree-single-move"><?php esc_html_e('Mover', 'shared-docs-manager'); ?></button>
+                        <button type="button" class="button button-secondary" data-action="tree-single-delete"><?php esc_html_e('Borrar', 'shared-docs-manager'); ?></button>
+                    </div>
+                    <div class="shared-docs-tree-global-actions__buttons" data-tree-actions-multi hidden>
                         <button type="button" class="button" data-action="open-bulk-move-modal"><?php esc_html_e('Mover seleccionados', 'shared-docs-manager'); ?></button>
                         <button type="button" class="button button-secondary" data-action="submit-bulk-delete"><?php esc_html_e('Borrar seleccionados', 'shared-docs-manager'); ?></button>
                     </div>
@@ -263,6 +289,7 @@ class Admin_Controller
             <?php echo $this->render_rename_folder_modal(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
             <?php echo $this->render_access_modal($assignable_users); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
             <?php echo $this->render_excel_history_modal(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+            <?php echo $this->render_file_action_modal(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
         </div>
         <?php
     }
@@ -306,8 +333,11 @@ class Admin_Controller
             'permissionsByFile'   => $permissions_payload['by_file'],
             'userPermissionsHtmlByUser' => $permissions_payload['user_permissions_html'],
             'excelHistoryByFile'  => $excel_history_payload,
+            'restBase'            => trailingslashit(rest_url('shared-docs/v1')),
+            'nonce'               => wp_create_nonce('wp_rest'),
             'messages'            => array(
                 'bulkSelection' => __('%d elementos seleccionados', 'shared-docs-manager'),
+                'requestError'  => __('Error de comunicación con el servidor.', 'shared-docs-manager'),
             ),
         );
         wp_add_inline_script('shared-docs-admin', 'window.SharedDocsAdminData = ' . wp_json_encode($inline_data) . ';', 'before');
@@ -344,22 +374,14 @@ class Admin_Controller
                                 <input type="hidden" name="permission_id" value="<?php echo (int) $editing_permission->id; ?>" />
                             <?php endif; ?>
 
-                            <div class="shared-docs-switch-row">
-                                <span><?php esc_html_e('Seleccionar todos los usuarios', 'shared-docs-manager'); ?></span>
-                                <label class="shared-docs-switch" for="shared-permission-users-select-all">
-                                    <input id="shared-permission-users-select-all" type="checkbox" data-select-all-options="#shared-permission-user" />
-                                    <span class="shared-docs-slider"></span>
-                                </label>
-                            </div>
-
-                            <label for="shared-permission-user"><?php esc_html_e('Usuarios', 'shared-docs-manager'); ?></label>
-                            <select id="shared-permission-user" name="user_ids[]" multiple size="8" required>
-                                <?php foreach ($assignable_users as $user) : ?>
-                                    <option value="<?php echo (int) $user->ID; ?>" <?php selected($editing_permission ? (int) $editing_permission->user_id : 0, (int) $user->ID); ?>>
-                                        <?php echo esc_html($user->display_name . ' (' . $user->user_email . ')'); ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
+                            <?php
+                            echo $this->render_user_checkbox_selector(
+                                $assignable_users,
+                                'user_ids[]',
+                                $editing_permission ? array((int) $editing_permission->user_id) : array(),
+                                'shared-folder-permission-users'
+                            ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+                            ?>
 
                             <label for="shared-permission-folder"><?php esc_html_e('Carpeta', 'shared-docs-manager'); ?></label>
                             <select id="shared-permission-folder" name="folder_id" required>
@@ -403,22 +425,14 @@ class Admin_Controller
                                 <input type="hidden" name="permission_id" value="<?php echo (int) $editing_file_permission->id; ?>" />
                             <?php endif; ?>
 
-                            <div class="shared-docs-switch-row">
-                                <span><?php esc_html_e('Seleccionar todos los usuarios', 'shared-docs-manager'); ?></span>
-                                <label class="shared-docs-switch" for="shared-file-permission-users-select-all">
-                                    <input id="shared-file-permission-users-select-all" type="checkbox" data-select-all-options="#shared-file-permission-user" />
-                                    <span class="shared-docs-slider"></span>
-                                </label>
-                            </div>
-
-                            <label for="shared-file-permission-user"><?php esc_html_e('Usuarios', 'shared-docs-manager'); ?></label>
-                            <select id="shared-file-permission-user" name="user_ids[]" multiple size="8" required>
-                                <?php foreach ($assignable_users as $user) : ?>
-                                    <option value="<?php echo (int) $user->ID; ?>" <?php selected($editing_file_permission ? (int) $editing_file_permission->user_id : 0, (int) $user->ID); ?>>
-                                        <?php echo esc_html($user->display_name . ' (' . $user->user_email . ')'); ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
+                            <?php
+                            echo $this->render_user_checkbox_selector(
+                                $assignable_users,
+                                'user_ids[]',
+                                $editing_file_permission ? array((int) $editing_file_permission->user_id) : array(),
+                                'shared-file-permission-users'
+                            ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+                            ?>
 
                             <label for="shared-file-permission-file"><?php esc_html_e('Archivo', 'shared-docs-manager'); ?></label>
                             <select id="shared-file-permission-file" name="file_id" required>
@@ -467,14 +481,17 @@ class Admin_Controller
                         $date = wp_date(get_option('date_format') . ' ' . get_option('time_format'), strtotime($folder->post_modified_gmt . ' GMT'));
                         ?>
                         <tr data-resource-row>
-                            <td><?php echo esc_html($this->get_resource_icon_text('folder')); ?></td>
+                            <td><?php echo $this->render_resource_icon_html('folder'); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?></td>
                             <td><?php esc_html_e('Carpeta', 'shared-docs-manager'); ?></td>
                             <td><?php echo esc_html($folder->post_title); ?></td>
                             <td><?php echo esc_html($location); ?></td>
                             <td><?php echo esc_html($date); ?></td>
                             <td>
-                                <button type="button" class="button button-primary shared-docs-open-access-modal" data-item-type="folder" data-item-id="<?php echo (int) $folder_id; ?>" data-item-label="<?php echo esc_attr($folder->post_title); ?>">
+                                <button type="button" class="button button-primary shared-docs-open-permissions-view-modal" data-item-type="folder" data-item-id="<?php echo (int) $folder_id; ?>" data-item-label="<?php echo esc_attr($folder->post_title); ?>">
                                     <?php esc_html_e('Ver permisos', 'shared-docs-manager'); ?>
+                                </button>
+                                <button type="button" class="button shared-docs-open-permissions-manage-modal" data-item-type="folder" data-item-id="<?php echo (int) $folder_id; ?>" data-item-label="<?php echo esc_attr($folder->post_title); ?>">
+                                    <?php esc_html_e('Gestión de permisos', 'shared-docs-manager'); ?>
                                 </button>
                             </td>
                         </tr>
@@ -500,14 +517,17 @@ class Admin_Controller
                         );
                         ?>
                         <tr data-resource-row>
-                            <td><?php echo esc_html($this->get_resource_icon_text('file', $file)); ?></td>
+                            <td><?php echo $this->render_resource_icon_html('file', $file); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?></td>
                             <td><?php esc_html_e('Archivo', 'shared-docs-manager'); ?></td>
                             <td><?php echo esc_html($file->post_title); ?></td>
                             <td><?php echo esc_html($folder_name); ?></td>
                             <td><?php echo esc_html($date); ?></td>
                             <td>
-                                <button type="button" class="button button-primary shared-docs-open-access-modal" data-item-type="file" data-item-id="<?php echo (int) $file_id; ?>" data-item-label="<?php echo esc_attr($file->post_title); ?>">
+                                <button type="button" class="button button-primary shared-docs-open-permissions-view-modal" data-item-type="file" data-item-id="<?php echo (int) $file_id; ?>" data-item-label="<?php echo esc_attr($file->post_title); ?>">
                                     <?php esc_html_e('Ver permisos', 'shared-docs-manager'); ?>
+                                </button>
+                                <button type="button" class="button shared-docs-open-permissions-manage-modal" data-item-type="file" data-item-id="<?php echo (int) $file_id; ?>" data-item-label="<?php echo esc_attr($file->post_title); ?>">
+                                    <?php esc_html_e('Gestión de permisos', 'shared-docs-manager'); ?>
                                 </button>
                                 <a class="button" href="<?php echo esc_url($open_url); ?>" target="_blank" rel="noopener">
                                     <?php esc_html_e('Abrir', 'shared-docs-manager'); ?>
@@ -525,7 +545,8 @@ class Admin_Controller
                 <p class="description" data-resource-empty hidden><?php esc_html_e('No hay resultados para la búsqueda actual.', 'shared-docs-manager'); ?></p>
             </section>
 
-            <?php echo $this->render_access_modal($assignable_users, 'shared-docs-permissions'); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+            <?php echo $this->render_access_view_modal(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+            <?php echo $this->render_access_manage_modal($assignable_users, 'shared-docs-permissions'); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
             <?php echo $this->render_excel_history_modal(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
         </div>
         <?php
@@ -1537,6 +1558,44 @@ class Admin_Controller
     }
 
     /**
+     * Handler: descarga de archivo desde administración.
+     *
+     * @return void
+     */
+    public function handle_download_file()
+    {
+        $this->deny_if_not_manager();
+
+        $file_id = isset($_GET['file_id']) ? (int) $_GET['file_id'] : 0;
+        if ($file_id <= 0) {
+            $this->redirect_with_notice('file_open_invalid', array(), 'shared-docs');
+        }
+
+        check_admin_referer('shared_docs_download_file_' . $file_id);
+        $path = get_attached_file($file_id);
+        if (! $path || ! file_exists($path)) {
+            $this->redirect_with_notice('file_open_invalid', array(), 'shared-docs');
+        }
+
+        $mime = (string) get_post_mime_type($file_id);
+        if ($mime === '') {
+            $mime = 'application/octet-stream';
+        }
+
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+
+        nocache_headers();
+        header('Content-Type: ' . $mime);
+        header('Content-Disposition: attachment; filename="' . str_replace('"', '', basename($path)) . '"');
+        header('Content-Length: ' . (string) filesize($path));
+        header('X-Content-Type-Options: nosniff');
+        readfile($path);
+        exit;
+    }
+
+    /**
      * Handler: añadir usuarios en bloque a carpeta o archivo desde modal.
      *
      * @return void
@@ -2247,17 +2306,6 @@ class Admin_Controller
             echo '<ul class="shared-docs-tree shared-docs-tree-orphans">';
             foreach ($orphan_files as $file) {
                 $file_id = (int) $file->ID;
-                $delete_link = wp_nonce_url(
-                    add_query_arg(
-                        array(
-                            'action'      => 'shared_docs_delete_file',
-                            'file_id'     => $file_id,
-                            'return_page' => 'shared-docs',
-                        ),
-                        admin_url('admin-post.php')
-                    ),
-                    'shared_docs_delete_file_' . $file_id
-                );
                 $open_link = wp_nonce_url(
                     add_query_arg(
                         array(
@@ -2269,38 +2317,46 @@ class Admin_Controller
                     ),
                     'shared_docs_open_file_' . $file_id
                 );
+                $download_link = wp_nonce_url(
+                    add_query_arg(
+                        array(
+                            'action'      => 'shared_docs_download_file',
+                            'file_id'     => $file_id,
+                            'return_page' => 'shared-docs',
+                        ),
+                        admin_url('admin-post.php')
+                    ),
+                    'shared_docs_download_file_' . $file_id
+                );
                 $is_excel = $this->is_excel_file_post($file);
+                $can_edit_excel = $is_excel
+                    ? $this->permission_manager->user_can_access_file(get_current_user_id(), $file_id, 'can_edit_excel')
+                    : false;
+                $mime_type = (string) get_post_mime_type($file_id);
+                $file_path = (string) get_attached_file($file_id);
+                $file_name = $file_path !== '' ? basename($file_path) : (string) $file->post_title;
                 $file_users_count = isset($counts_payload['file_users'][$file_id]) ? (int) $counts_payload['file_users'][$file_id] : 0;
                 ?>
                 <li class="shared-docs-tree__node">
                     <div class="shared-docs-tree__item shared-docs-tree__item--file">
-                        <input type="checkbox" class="shared-docs-item-checkbox" data-item-type="file" data-item-id="<?php echo (int) $file_id; ?>" />
-                        <span class="shared-docs-tree__icon"><?php echo esc_html($this->get_resource_icon_text('file', $file)); ?></span>
-                        <span class="shared-docs-tree__label"><?php echo esc_html($file->post_title); ?></span>
-                        <span class="shared-docs-tree__badge"><?php echo esc_html(sprintf(__('Permisos archivo: %d', 'shared-docs-manager'), $file_users_count)); ?></span>
-                        <a class="button button-small" href="<?php echo esc_url($open_link); ?>" target="_blank" rel="noopener"><?php esc_html_e('Abrir', 'shared-docs-manager'); ?></a>
-                        <button
-                            type="button"
-                            class="button button-small shared-docs-open-move-modal"
+                        <input
+                            type="checkbox"
+                            class="shared-docs-item-checkbox"
                             data-item-type="file"
                             data-item-id="<?php echo (int) $file_id; ?>"
                             data-item-label="<?php echo esc_attr($file->post_title); ?>"
                             data-current-folder="0"
                             data-invalid-targets=""
-                        >
-                            <?php esc_html_e('Mover a...', 'shared-docs-manager'); ?>
-                        </button>
-                        <button type="button" class="button button-small shared-docs-open-access-modal" data-item-type="file" data-item-id="<?php echo (int) $file_id; ?>" data-item-label="<?php echo esc_attr($file->post_title); ?>">
-                            <?php esc_html_e('Administrar acceso', 'shared-docs-manager'); ?>
-                        </button>
-                        <?php if ($is_excel) : ?>
-                            <button type="button" class="button button-small shared-docs-open-history-modal" data-file-id="<?php echo (int) $file_id; ?>" data-file-label="<?php echo esc_attr($file->post_title); ?>">
-                                <?php esc_html_e('Histórico', 'shared-docs-manager'); ?>
-                            </button>
-                        <?php endif; ?>
-                        <a class="shared-docs-tree__delete" href="<?php echo esc_url($delete_link); ?>" onclick="return confirm('<?php echo esc_js(__('¿Eliminar este archivo?', 'shared-docs-manager')); ?>');">
-                            <?php esc_html_e('Borrar', 'shared-docs-manager'); ?>
-                        </a>
+                            data-open-url="<?php echo esc_attr($open_link); ?>"
+                            data-download-url="<?php echo esc_attr($download_link); ?>"
+                            data-is-excel="<?php echo $is_excel ? '1' : '0'; ?>"
+                            data-can-edit-excel="<?php echo $can_edit_excel ? '1' : '0'; ?>"
+                            data-mime-type="<?php echo esc_attr($mime_type); ?>"
+                            data-filename="<?php echo esc_attr($file_name); ?>"
+                        />
+                        <span class="shared-docs-tree__icon"><?php echo $this->render_resource_icon_html('file', $file); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?></span>
+                        <span class="shared-docs-tree__label"><?php echo esc_html($file->post_title); ?></span>
+                        <span class="shared-docs-tree__badge"><?php echo esc_html(sprintf(__('Permisos archivo: %d', 'shared-docs-manager'), $file_users_count)); ?></span>
                     </div>
                 </li>
                 <?php
@@ -2338,18 +2394,6 @@ class Admin_Controller
         $html = '';
         foreach ($folder_children[$parent_id] as $folder) {
             $folder_id = (int) $folder->ID;
-            $delete_folder_link = wp_nonce_url(
-                add_query_arg(
-                    array(
-                        'action'    => 'shared_docs_delete_folder',
-                        'folder_id' => $folder_id,
-                        'return_page' => 'shared-docs',
-                    ),
-                    admin_url('admin-post.php')
-                ),
-                'shared_docs_delete_folder_' . $folder_id
-            );
-
             $invalid_targets = implode(',', $this->get_descendant_folder_ids($folder_id));
             $folder_users_count = isset($folder_user_counts[$folder_id]) ? (int) $folder_user_counts[$folder_id] : 0;
             $folder_file_users_count = isset($folder_file_user_counts[$folder_id]) ? (int) $folder_file_user_counts[$folder_id] : 0;
@@ -2357,33 +2401,16 @@ class Admin_Controller
             $html .= '<li class="shared-docs-tree__node">';
             $html .= '<details class="shared-docs-accordion" ' . ($depth === 0 ? 'open' : '') . '>';
             $html .= '<summary class="shared-docs-tree__item shared-docs-tree__item--folder">';
-            $html .= '<input type="checkbox" class="shared-docs-item-checkbox" data-item-type="folder" data-item-id="' . (int) $folder_id . '" />';
-            $html .= '<span class="shared-docs-tree__icon">' . esc_html($this->get_resource_icon_text('folder')) . '</span>';
+            $html .= '<input type="checkbox" class="shared-docs-item-checkbox" data-item-type="folder" data-item-id="' . (int) $folder_id . '" data-item-label="' . esc_attr($folder->post_title) . '" data-current-folder="' . (int) $folder->post_parent . '" data-invalid-targets="' . esc_attr($invalid_targets) . '" data-open-url="" data-download-url="" data-is-excel="0" data-can-edit-excel="0" data-mime-type="" data-filename="" />';
+            $html .= '<span class="shared-docs-tree__icon">' . $this->render_resource_icon_html('folder') . '</span>';
             $html .= '<span class="shared-docs-tree__label">' . esc_html($folder->post_title) . '</span>';
             $html .= '<span class="shared-docs-tree__badge">' . esc_html(sprintf(__('Permisos carpeta: %d · archivos: %d', 'shared-docs-manager'), $folder_users_count, $folder_file_users_count)) . '</span>';
             $html .= '</summary>';
-            $html .= '<div class="shared-docs-tree__controls">';
-            $html .= '<button type="button" class="button button-small shared-docs-open-rename-modal" data-folder-id="' . (int) $folder_id . '" data-folder-name="' . esc_attr($folder->post_title) . '">' . esc_html__('Editar nombre', 'shared-docs-manager') . '</button>';
-            $html .= '<button type="button" class="button button-small shared-docs-open-move-modal" data-item-type="folder" data-item-id="' . (int) $folder_id . '" data-item-label="' . esc_attr($folder->post_title) . '" data-current-folder="' . (int) $folder->post_parent . '" data-invalid-targets="' . esc_attr($invalid_targets) . '">' . esc_html__('Mover a...', 'shared-docs-manager') . '</button>';
-            $html .= '<button type="button" class="button button-small shared-docs-open-access-modal" data-item-type="folder" data-item-id="' . (int) $folder_id . '" data-item-label="' . esc_attr($folder->post_title) . '">' . esc_html__('Administrar acceso', 'shared-docs-manager') . '</button>';
-            $html .= '<a class="shared-docs-tree__delete" href="' . esc_url($delete_folder_link) . '" onclick="return confirm(\'' . esc_js(__('¿Eliminar esta carpeta y todo su contenido?', 'shared-docs-manager')) . '\');">' . esc_html__('Borrar carpeta', 'shared-docs-manager') . '</a>';
-            $html .= '</div>';
 
             $child_html = '';
             if (! empty($files_map[$folder_id])) {
                 foreach ($files_map[$folder_id] as $file) {
                     $file_id = (int) $file->ID;
-                    $delete_file_link = wp_nonce_url(
-                        add_query_arg(
-                            array(
-                                'action'  => 'shared_docs_delete_file',
-                                'file_id' => $file_id,
-                                'return_page' => 'shared-docs',
-                            ),
-                            admin_url('admin-post.php')
-                        ),
-                        'shared_docs_delete_file_' . $file_id
-                    );
                     $open_file_link = wp_nonce_url(
                         add_query_arg(
                             array(
@@ -2395,22 +2422,32 @@ class Admin_Controller
                         ),
                         'shared_docs_open_file_' . $file_id
                     );
+                    $download_file_link = wp_nonce_url(
+                        add_query_arg(
+                            array(
+                                'action'      => 'shared_docs_download_file',
+                                'file_id'     => $file_id,
+                                'return_page' => 'shared-docs',
+                            ),
+                            admin_url('admin-post.php')
+                        ),
+                        'shared_docs_download_file_' . $file_id
+                    );
                     $is_excel = $this->is_excel_file_post($file);
+                    $can_edit_excel = $is_excel
+                        ? $this->permission_manager->user_can_access_file(get_current_user_id(), $file_id, 'can_edit_excel')
+                        : false;
+                    $mime_type = (string) get_post_mime_type($file_id);
+                    $file_path = (string) get_attached_file($file_id);
+                    $file_name = $file_path !== '' ? basename($file_path) : (string) $file->post_title;
                     $file_users_count = isset($file_user_counts[$file_id]) ? (int) $file_user_counts[$file_id] : 0;
 
                     $child_html .= '<li class="shared-docs-tree__node">';
                     $child_html .= '<div class="shared-docs-tree__item shared-docs-tree__item--file">';
-                    $child_html .= '<input type="checkbox" class="shared-docs-item-checkbox" data-item-type="file" data-item-id="' . (int) $file_id . '" />';
-                    $child_html .= '<span class="shared-docs-tree__icon">' . esc_html($this->get_resource_icon_text('file', $file)) . '</span>';
+                    $child_html .= '<input type="checkbox" class="shared-docs-item-checkbox" data-item-type="file" data-item-id="' . (int) $file_id . '" data-item-label="' . esc_attr($file->post_title) . '" data-current-folder="' . (int) $folder_id . '" data-invalid-targets="" data-open-url="' . esc_attr($open_file_link) . '" data-download-url="' . esc_attr($download_file_link) . '" data-is-excel="' . ($is_excel ? '1' : '0') . '" data-can-edit-excel="' . ($can_edit_excel ? '1' : '0') . '" data-mime-type="' . esc_attr($mime_type) . '" data-filename="' . esc_attr($file_name) . '" />';
+                    $child_html .= '<span class="shared-docs-tree__icon">' . $this->render_resource_icon_html('file', $file) . '</span>';
                     $child_html .= '<span class="shared-docs-tree__label">' . esc_html($file->post_title) . '</span>';
                     $child_html .= '<span class="shared-docs-tree__badge">' . esc_html(sprintf(__('Permisos archivo: %d', 'shared-docs-manager'), $file_users_count)) . '</span>';
-                    $child_html .= '<a class="button button-small" href="' . esc_url($open_file_link) . '" target="_blank" rel="noopener">' . esc_html__('Abrir', 'shared-docs-manager') . '</a>';
-                    $child_html .= '<button type="button" class="button button-small shared-docs-open-move-modal" data-item-type="file" data-item-id="' . (int) $file_id . '" data-item-label="' . esc_attr($file->post_title) . '" data-current-folder="' . (int) $folder_id . '" data-invalid-targets="">' . esc_html__('Mover a...', 'shared-docs-manager') . '</button>';
-                    $child_html .= '<button type="button" class="button button-small shared-docs-open-access-modal" data-item-type="file" data-item-id="' . (int) $file_id . '" data-item-label="' . esc_attr($file->post_title) . '">' . esc_html__('Administrar acceso', 'shared-docs-manager') . '</button>';
-                    if ($is_excel) {
-                        $child_html .= '<button type="button" class="button button-small shared-docs-open-history-modal" data-file-id="' . (int) $file_id . '" data-file-label="' . esc_attr($file->post_title) . '">' . esc_html__('Histórico', 'shared-docs-manager') . '</button>';
-                    }
-                    $child_html .= '<a class="shared-docs-tree__delete" href="' . esc_url($delete_file_link) . '" onclick="return confirm(\'' . esc_js(__('¿Eliminar este archivo?', 'shared-docs-manager')) . '\');">' . esc_html__('Borrar', 'shared-docs-manager') . '</a>';
                     $child_html .= '</div>';
                     $child_html .= '</li>';
                 }
@@ -2594,14 +2631,6 @@ class Admin_Controller
         return (string) ob_get_clean();
     }
 
-    /**
-     * Renderiza modal de gestión de accesos por elemento.
-     *
-     * @param array  $assignable_users Usuarios disponibles.
-     * @param string $return_page      Página retorno.
-     *
-     * @return string
-     */
     private function render_access_modal($assignable_users, $return_page = 'shared-docs')
     {
         ob_start();
@@ -2613,75 +2642,127 @@ class Admin_Controller
                     <h3><?php esc_html_e('Administrar acceso', 'shared-docs-manager'); ?></h3>
                     <button type="button" class="button button-link-delete" data-action="close-access-modal">&times;</button>
                 </header>
-
                 <p class="description" data-access-item-label></p>
-
-                <div class="shared-docs-access-current">
-                    <h4><?php esc_html_e('Usuarios y permisos actuales', 'shared-docs-manager'); ?></h4>
-                    <table class="widefat striped">
-                        <thead>
-                        <tr>
-                            <th><?php esc_html_e('Usuario', 'shared-docs-manager'); ?></th>
-                            <th><?php esc_html_e('Lectura', 'shared-docs-manager'); ?></th>
-                            <th><?php esc_html_e('Descarga', 'shared-docs-manager'); ?></th>
-                            <th><?php esc_html_e('Edición Excel', 'shared-docs-manager'); ?></th>
-                            <th><?php esc_html_e('Expira', 'shared-docs-manager'); ?></th>
-                            <th><?php esc_html_e('Acciones', 'shared-docs-manager'); ?></th>
-                        </tr>
-                        </thead>
-                        <tbody data-access-current-body>
-                        <tr data-access-current-empty>
-                            <td colspan="6"><?php esc_html_e('No hay permisos asignados para este elemento.', 'shared-docs-manager'); ?></td>
-                        </tr>
-                        </tbody>
-                    </table>
-                </div>
-
-                <hr />
-
-                <div class="shared-docs-access-add">
-                    <h4><?php esc_html_e('Añadir usuarios en bloque', 'shared-docs-manager'); ?></h4>
-                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
-                        <input type="hidden" name="action" value="shared_docs_add_item_access_bulk" />
-                        <input type="hidden" name="return_page" value="<?php echo esc_attr($return_page); ?>" />
-                        <?php wp_nonce_field('shared_docs_add_item_access_bulk'); ?>
-                        <input type="hidden" name="item_type" value="" data-access-item-type />
-                        <input type="hidden" name="item_id" value="" data-access-item-id />
-
-                        <div class="shared-docs-switch-row">
-                            <span><?php esc_html_e('Seleccionar a todos', 'shared-docs-manager'); ?></span>
-                            <label class="shared-docs-switch" for="shared-modal-select-all-users">
-                                <input id="shared-modal-select-all-users" type="checkbox" data-access-select-all />
-                                <span class="shared-docs-slider"></span>
-                            </label>
-                        </div>
-
-                        <div class="shared-docs-user-checklist" data-access-user-checklist>
-                            <?php foreach ((array) $assignable_users as $user) : ?>
-                                <label class="shared-docs-user-checklist__item">
-                                    <input type="checkbox" name="user_ids[]" value="<?php echo (int) $user->ID; ?>" class="shared-docs-access-user-checkbox" />
-                                    <span><?php echo esc_html($user->display_name . ' (' . $user->user_email . ')'); ?></span>
-                                </label>
-                            <?php endforeach; ?>
-                        </div>
-
-                        <fieldset class="shared-docs-checkboxes">
-                            <legend><?php esc_html_e('Permisos', 'shared-docs-manager'); ?></legend>
-                            <label><input type="checkbox" name="can_read" value="1" checked /> <?php esc_html_e('Lectura', 'shared-docs-manager'); ?></label>
-                            <label><input type="checkbox" name="can_download" value="1" checked /> <?php esc_html_e('Descarga', 'shared-docs-manager'); ?></label>
-                            <label><input type="checkbox" name="can_edit_excel" value="1" /> <?php esc_html_e('Edición Excel', 'shared-docs-manager'); ?></label>
-                        </fieldset>
-
-                        <label for="shared-modal-access-expires"><?php esc_html_e('Fecha límite (opcional)', 'shared-docs-manager'); ?></label>
-                        <input id="shared-modal-access-expires" type="datetime-local" name="expires_at" value="" />
-
-                        <div class="shared-docs-modal-admin__footer">
-                            <button type="button" class="button" data-action="close-access-modal"><?php esc_html_e('Cancelar', 'shared-docs-manager'); ?></button>
-                            <button type="submit" class="button button-primary"><?php esc_html_e('Guardar accesos', 'shared-docs-manager'); ?></button>
-                        </div>
-                    </form>
+                <?php echo $this->render_access_current_table(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+                <?php echo $this->render_access_manage_form($assignable_users, $return_page, 'shared-modal-access-users', 'close-access-modal'); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+                <div class="shared-docs-modal-admin__footer">
+                    <button type="button" class="button" data-action="close-access-modal"><?php esc_html_e('Cerrar', 'shared-docs-manager'); ?></button>
                 </div>
             </div>
+        </div>
+        <?php
+        return (string) ob_get_clean();
+    }
+
+    private function render_access_view_modal()
+    {
+        ob_start();
+        ?>
+        <div class="shared-docs-modal-admin" data-shared-access-view-modal hidden>
+            <div class="shared-docs-modal-admin__backdrop" data-action="close-access-view-modal"></div>
+            <div class="shared-docs-modal-admin__dialog shared-docs-modal-admin__dialog--wide" role="dialog" aria-modal="true">
+                <header class="shared-docs-modal-admin__header">
+                    <h3><?php esc_html_e('Ver permisos', 'shared-docs-manager'); ?></h3>
+                    <button type="button" class="button button-link-delete" data-action="close-access-view-modal">&times;</button>
+                </header>
+                <p class="description" data-access-item-label></p>
+                <?php echo $this->render_access_current_table(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+                <div class="shared-docs-modal-admin__footer">
+                    <button type="button" class="button" data-action="close-access-view-modal"><?php esc_html_e('Cerrar', 'shared-docs-manager'); ?></button>
+                </div>
+            </div>
+        </div>
+        <?php
+        return (string) ob_get_clean();
+    }
+
+    private function render_access_manage_modal($assignable_users, $return_page = 'shared-docs-permissions')
+    {
+        ob_start();
+        ?>
+        <div class="shared-docs-modal-admin" data-shared-access-manage-modal hidden>
+            <div class="shared-docs-modal-admin__backdrop" data-action="close-access-manage-modal"></div>
+            <div class="shared-docs-modal-admin__dialog shared-docs-modal-admin__dialog--wide" role="dialog" aria-modal="true">
+                <header class="shared-docs-modal-admin__header">
+                    <h3><?php esc_html_e('Gestión de permisos', 'shared-docs-manager'); ?></h3>
+                    <button type="button" class="button button-link-delete" data-action="close-access-manage-modal">&times;</button>
+                </header>
+                <p class="description" data-access-item-label></p>
+                <?php echo $this->render_access_manage_form($assignable_users, $return_page, 'shared-modal-manage-access-users', 'close-access-manage-modal'); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+                <div class="shared-docs-modal-admin__footer">
+                    <button type="button" class="button" data-action="close-access-manage-modal"><?php esc_html_e('Cerrar', 'shared-docs-manager'); ?></button>
+                </div>
+            </div>
+        </div>
+        <?php
+        return (string) ob_get_clean();
+    }
+
+    private function render_access_current_table()
+    {
+        ob_start();
+        ?>
+        <div class="shared-docs-access-current">
+            <h4><?php esc_html_e('Usuarios y permisos actuales', 'shared-docs-manager'); ?></h4>
+            <table class="widefat striped">
+                <thead>
+                <tr>
+                    <th><?php esc_html_e('Usuario', 'shared-docs-manager'); ?></th>
+                    <th><?php esc_html_e('Lectura', 'shared-docs-manager'); ?></th>
+                    <th><?php esc_html_e('Descarga', 'shared-docs-manager'); ?></th>
+                    <th><?php esc_html_e('Edición Excel', 'shared-docs-manager'); ?></th>
+                    <th><?php esc_html_e('Expira', 'shared-docs-manager'); ?></th>
+                    <th><?php esc_html_e('Acciones', 'shared-docs-manager'); ?></th>
+                </tr>
+                </thead>
+                <tbody data-access-current-body>
+                <tr data-access-current-empty>
+                    <td colspan="6"><?php esc_html_e('No hay permisos asignados para este elemento.', 'shared-docs-manager'); ?></td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+        <?php
+        return (string) ob_get_clean();
+    }
+
+    private function render_access_manage_form($assignable_users, $return_page, $id_prefix, $close_action)
+    {
+        ob_start();
+        ?>
+        <div class="shared-docs-access-add">
+            <h4><?php esc_html_e('Gestión de permisos', 'shared-docs-manager'); ?></h4>
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                <input type="hidden" name="action" value="shared_docs_add_item_access_bulk" />
+                <input type="hidden" name="return_page" value="<?php echo esc_attr($return_page); ?>" />
+                <?php wp_nonce_field('shared_docs_add_item_access_bulk'); ?>
+                <input type="hidden" name="item_type" value="" data-access-item-type />
+                <input type="hidden" name="item_id" value="" data-access-item-id />
+
+                <?php
+                echo $this->render_user_checkbox_selector(
+                    $assignable_users,
+                    'user_ids[]',
+                    array(),
+                    $id_prefix
+                ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+                ?>
+
+                <fieldset class="shared-docs-checkboxes">
+                    <legend><?php esc_html_e('Permisos', 'shared-docs-manager'); ?></legend>
+                    <label><input type="checkbox" name="can_read" value="1" checked /> <?php esc_html_e('Lectura', 'shared-docs-manager'); ?></label>
+                    <label><input type="checkbox" name="can_download" value="1" checked /> <?php esc_html_e('Descarga', 'shared-docs-manager'); ?></label>
+                    <label><input type="checkbox" name="can_edit_excel" value="1" /> <?php esc_html_e('Edición Excel', 'shared-docs-manager'); ?></label>
+                </fieldset>
+
+                <label for="shared-modal-access-expires-<?php echo esc_attr($id_prefix); ?>"><?php esc_html_e('Fecha límite (opcional)', 'shared-docs-manager'); ?></label>
+                <input id="shared-modal-access-expires-<?php echo esc_attr($id_prefix); ?>" type="datetime-local" name="expires_at" value="" />
+
+                <div class="shared-docs-modal-admin__footer">
+                    <button type="button" class="button" data-action="<?php echo esc_attr($close_action); ?>"><?php esc_html_e('Cancelar', 'shared-docs-manager'); ?></button>
+                    <button type="submit" class="button button-primary"><?php esc_html_e('Guardar accesos', 'shared-docs-manager'); ?></button>
+                </div>
+            </form>
         </div>
         <?php
         return (string) ob_get_clean();
@@ -2721,6 +2802,44 @@ class Admin_Controller
 
                 <div class="shared-docs-modal-admin__footer">
                     <button type="button" class="button" data-action="close-history-modal"><?php esc_html_e('Cerrar', 'shared-docs-manager'); ?></button>
+                </div>
+            </div>
+        </div>
+        <?php
+        return (string) ob_get_clean();
+    }
+
+    /**
+     * Modal fullscreen para abrir/previsualizar/editar archivo.
+     *
+     * @return string
+     */
+    private function render_file_action_modal()
+    {
+        ob_start();
+        ?>
+        <div class="shared-docs-modal-admin shared-docs-modal-admin--fullscreen" data-shared-file-modal hidden>
+            <div class="shared-docs-modal-admin__backdrop" data-action="close-file-modal"></div>
+            <div class="shared-docs-modal-admin__dialog shared-docs-modal-admin__dialog--fullscreen" role="dialog" aria-modal="true">
+                <header class="shared-docs-modal-admin__header">
+                    <h3 data-file-modal-title><?php esc_html_e('Abrir archivo', 'shared-docs-manager'); ?></h3>
+                    <button type="button" class="button button-link-delete" data-action="close-file-modal">&times;</button>
+                </header>
+
+                <div class="shared-docs-modal-admin__body">
+                    <div data-file-preview-wrap></div>
+                    <div data-file-excel-wrap hidden>
+                        <p class="description"><?php esc_html_e('Haz clic sobre una celda para editarla.', 'shared-docs-manager'); ?></p>
+                        <div class="shared-docs-excel-table-wrap">
+                            <table class="shared-docs-excel-table" data-file-excel-table></table>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="shared-docs-modal-admin__footer">
+                    <button type="button" class="button" data-action="close-file-modal"><?php esc_html_e('Cerrar', 'shared-docs-manager'); ?></button>
+                    <button type="button" class="button" data-action="file-modal-download"><?php esc_html_e('Descargar', 'shared-docs-manager'); ?></button>
+                    <button type="button" class="button button-primary" data-action="file-modal-save-excel" hidden><?php esc_html_e('Guardar cambios', 'shared-docs-manager'); ?></button>
                 </div>
             </div>
         </div>
@@ -2827,6 +2946,70 @@ class Admin_Controller
     }
 
     /**
+     * Renderiza selector de usuarios con checkboxes, buscador y "seleccionar todos".
+     *
+     * @param array  $users        Usuarios disponibles.
+     * @param string $field_name   Nombre del input checkbox.
+     * @param array  $selected_ids IDs preseleccionados.
+     * @param string $id_prefix    Prefijo único para IDs HTML.
+     *
+     * @return string
+     */
+    private function render_user_checkbox_selector($users, $field_name, $selected_ids, $id_prefix)
+    {
+        $selected_lookup = array();
+        foreach ((array) $selected_ids as $selected_id) {
+            $selected_lookup[(int) $selected_id] = true;
+        }
+
+        $search_id = $id_prefix . '-search';
+        $select_all_id = $id_prefix . '-select-all';
+
+        ob_start();
+        ?>
+        <div class="shared-docs-user-selector" data-user-selector>
+            <div class="shared-docs-switch-row">
+                <span><?php esc_html_e('Seleccionar a todos', 'shared-docs-manager'); ?></span>
+                <label class="shared-docs-switch" for="<?php echo esc_attr($select_all_id); ?>">
+                    <input id="<?php echo esc_attr($select_all_id); ?>" type="checkbox" data-user-select-all />
+                    <span class="shared-docs-slider"></span>
+                </label>
+            </div>
+
+            <label for="<?php echo esc_attr($search_id); ?>"><?php esc_html_e('Buscar usuario', 'shared-docs-manager'); ?></label>
+            <input
+                id="<?php echo esc_attr($search_id); ?>"
+                type="search"
+                class="regular-text"
+                placeholder="<?php esc_attr_e('Escribe nombre o email...', 'shared-docs-manager'); ?>"
+                data-user-search
+            />
+
+            <div class="shared-docs-user-checklist" data-user-checklist>
+                <?php foreach ((array) $users as $user) : ?>
+                    <?php
+                    $user_id = (int) $user->ID;
+                    $label = $user->display_name . ' (' . $user->user_email . ')';
+                    ?>
+                    <label class="shared-docs-user-checklist__item" data-user-item>
+                        <input
+                            type="checkbox"
+                            name="<?php echo esc_attr($field_name); ?>"
+                            value="<?php echo (int) $user_id; ?>"
+                            class="shared-docs-user-checkbox"
+                            <?php checked(isset($selected_lookup[$user_id])); ?>
+                        />
+                        <span><?php echo esc_html($label); ?></span>
+                    </label>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        <?php
+
+        return (string) ob_get_clean();
+    }
+
+    /**
      * Obtiene lista de usuarios seleccionados desde request.
      *
      * @return array
@@ -2869,54 +3052,31 @@ class Admin_Controller
     }
 
     /**
-     * Devuelve icono textual por tipo de recurso.
+     * Renderiza icono SVG de recurso.
      *
      * @param string      $resource_type folder|file.
      * @param object|null $file          Post de archivo.
      *
      * @return string
      */
-    private function get_resource_icon_text($resource_type, $file = null)
+    private function render_resource_icon_html($resource_type, $file = null)
     {
-        if ($resource_type === 'folder') {
-            return '📁';
-        }
-
+        $class = $resource_type === 'folder' ? 'shared-docs-type-icon shared-docs-type-icon--folder' : 'shared-docs-type-icon shared-docs-type-icon--file';
+        $title = $resource_type === 'folder' ? __('Carpeta', 'shared-docs-manager') : __('Archivo', 'shared-docs-manager');
+        $path = '';
         $mime = '';
-        $file_id = 0;
-        if (is_object($file) && isset($file->ID)) {
-            $file_id = (int) $file->ID;
-            $mime = (string) (isset($file->post_mime_type) ? $file->post_mime_type : '');
+        if ($resource_type === 'file' && is_object($file) && isset($file->ID)) {
+            $path = (string) get_attached_file((int) $file->ID);
+            $mime = (string) get_post_mime_type((int) $file->ID);
         }
-        if ($mime === '' && $file_id > 0) {
-            $mime = (string) get_post_mime_type($file_id);
-        }
+        $svg = Icon_Helper::svg_for_resource($resource_type, basename($path), $mime);
 
-        $extension = '';
-        if ($file_id > 0) {
-            $path = (string) get_attached_file($file_id);
-            if ($path !== '') {
-                $extension = strtolower((string) pathinfo($path, PATHINFO_EXTENSION));
-            }
-        }
-
-        if ($mime === 'application/pdf' || $extension === 'pdf') {
-            return '📕';
-        }
-
-        if (strpos($mime, 'image/') === 0 || in_array($extension, array('jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'), true)) {
-            return '🖼️';
-        }
-
-        if ($this->is_excel_file_post($file)) {
-            return '📗';
-        }
-
-        if (in_array($extension, array('doc', 'docx', 'odt', 'rtf'), true) || strpos($mime, 'word') !== false || strpos($mime, 'officedocument.wordprocessingml') !== false) {
-            return '📘';
-        }
-
-        return '📄';
+        return sprintf(
+            '<span class="%s" title="%s">%s</span>',
+            esc_attr($class),
+            esc_attr($title),
+            $svg
+        );
     }
 
     /**
