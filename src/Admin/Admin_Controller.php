@@ -134,11 +134,18 @@ class Admin_Controller
             return;
         }
 
+        $admin_css_version = file_exists(SHARED_DOCS_PATH . 'assets/css/admin.css')
+            ? (string) filemtime(SHARED_DOCS_PATH . 'assets/css/admin.css')
+            : SHARED_DOCS_VERSION;
+        $admin_js_version = file_exists(SHARED_DOCS_PATH . 'assets/js/admin-manager.js')
+            ? (string) filemtime(SHARED_DOCS_PATH . 'assets/js/admin-manager.js')
+            : SHARED_DOCS_VERSION;
+
         wp_enqueue_style(
             'shared-docs-admin',
             SHARED_DOCS_URL . 'assets/css/admin.css',
             array(),
-            SHARED_DOCS_VERSION
+            $admin_css_version
         );
 
         wp_enqueue_script(
@@ -153,7 +160,7 @@ class Admin_Controller
             'shared-docs-admin',
             SHARED_DOCS_URL . 'assets/js/admin-manager.js',
             array('shared-docs-sheetjs'),
-            SHARED_DOCS_VERSION,
+            $admin_js_version,
             true
         );
     }

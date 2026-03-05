@@ -44,11 +44,18 @@ class Front_Controller
      */
     public function register_assets()
     {
+        $front_css_version = file_exists(SHARED_DOCS_PATH . 'assets/css/front.css')
+            ? (string) filemtime(SHARED_DOCS_PATH . 'assets/css/front.css')
+            : SHARED_DOCS_VERSION;
+        $front_js_version = file_exists(SHARED_DOCS_PATH . 'assets/js/front-manager.js')
+            ? (string) filemtime(SHARED_DOCS_PATH . 'assets/js/front-manager.js')
+            : SHARED_DOCS_VERSION;
+
         wp_register_style(
             'shared-docs-front',
             SHARED_DOCS_URL . 'assets/css/front.css',
             array(),
-            SHARED_DOCS_VERSION
+            $front_css_version
         );
 
         wp_register_script(
@@ -63,7 +70,7 @@ class Front_Controller
             'shared-docs-front',
             SHARED_DOCS_URL . 'assets/js/front-manager.js',
             array('shared-docs-sheetjs'),
-            SHARED_DOCS_VERSION,
+            $front_js_version,
             true
         );
     }
