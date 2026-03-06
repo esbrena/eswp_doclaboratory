@@ -179,12 +179,6 @@ button.shared-docs-btn-secondary.is-loading .shared-docs-btn-spinner {
   border-top-color: transparent;
 }
 
-.shared-docs-btn-primary {
-  border-color: var(--shared-docs-primary);
-  background: var(--shared-docs-primary);
-  color: #fff;
-}
-
 .shared-docs-btn-secondary {
   background: #fff;
 }
@@ -361,6 +355,55 @@ button.shared-docs-btn-secondary.is-loading .shared-docs-btn-spinner {
   cursor: pointer;
 }
 
+/**
+  
+  START: TABLE EXCELL CIE
+  
+  **/
+
+.shared-docs-excel-table tbody tr td:first-child {
+  background-color:#eaeaea;
+  font-weight:bold;
+}
+.shared-docs-excel-table tbody tr:first-child td {
+  background-color:lightgray;
+  font-weight:bold;
+}
+.shared-docs-excel-table td[contenteditable="true"]:focus {
+    white-space: normal;
+    overflow-wrap: break-word;
+}
+.shared-docs-excel-table td[contenteditable="true"]:hover {
+    background: #f5f9ff;
+    cursor: pointer;
+}
+table.shared-docs-excel-table {
+    border-spacing: 0px;
+    white-space: pre;
+    width: max-content;
+    border-collapse: collapse; /* une los bordes */
+    border: 1px solid #ccc;    /* borde exterior */
+}
+.shared-docs-excel-table td, .shared-docs-excel-table tr {
+    white-space: nowrap;
+    max-width: 70vw;
+    padding: 8px 12px;
+    border: 1px solid #ccc; 
+    overflow:hidden;
+}
+
+.shared-docs-excel-table td[contenteditable="false"]{
+    white-space: normal;
+    overflow-wrap: break-word;
+}
+
+/**
+  
+  END: TABLE EXCELL CIE
+  
+  **/
+
+/*TABLE CIE*/
 .shared-docs-excel-table-wrap {
   overflow: auto;
   max-height: 74vh;
@@ -392,6 +435,8 @@ button.shared-docs-btn-secondary.is-loading .shared-docs-btn-spinner {
 .shared-docs-excel-table td.shared-docs-excel-table__readonly:focus {
   outline: none;
 }
+
+/*EN TABLE CIE*/
 
 .shared-docs-loading {
   display: inline-flex;
@@ -460,4 +505,26 @@ button.shared-docs-btn-secondary.is-loading .shared-docs-btn-spinner {
   .shared-docs-overview__grid {
     grid-template-columns: 1fr;
   }
+}
+
+/*New css*/
+button.shared-docs-breadcrumb__item {
+    background: transparent !important;
+    color: black !important;
+}
+
+button.shared-docs-breadcrumb__item:hover {
+    background: transparent !important;
+    color: black !important;
+    text-decoration: underline !important;
+}
+.shared-docs-btn.shared-docs-btn-secondary, .shared-docs-modal__close {
+  background:transparent !important;
+  border: 1px solid lightgray !important;;
+  color:black !important;
+}
+.shared-docs-btn.shared-docs-btn-secondary:hover, .shared-docs-modal__close:hover {
+  background:#ccc !important;;
+  border: 1px solid lightgray !important;
+  color:black !important;
 }
