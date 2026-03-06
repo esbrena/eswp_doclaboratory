@@ -257,9 +257,9 @@
 }
 
 .shared-docs-modal-admin__dialog--fullscreen {
-  width: min(1400px, 98vw);
+  width:94vw;
   height: 94vh;
-  margin: 2vh auto;
+  margin: calc(3vh - 14px) auto;
   display: flex;
   flex-direction: column;
 }
@@ -475,6 +475,49 @@ button.is-loading,
   border-radius: 50%;
   animation: shared-docs-spin 0.8s linear infinite;
 }
+
+/**
+  
+  START: TABLE EXCELL CIE
+  
+  **/
+
+.shared-docs-excel-table tbody tr td:first-child {
+  background-color:#eaeaea;
+  font-weight:bold;
+}
+.shared-docs-excel-table tbody tr:first-child {
+  background-color:lightgray;
+  font-weight:bold;
+}
+.shared-docs-excel-table td[contenteditable="true"]:focus {
+    white-space: normal;
+    overflow-wrap: break-word;
+}
+.shared-docs-excel-table td[contenteditable="true"]:hover {
+    background: #f5f9ff;
+    cursor: pointer;
+}
+table.shared-docs-excel-table {
+    border-spacing: 0px;
+    white-space: pre;
+    width: max-content;
+    border-collapse: collapse; /* une los bordes */
+    border: 1px solid #ccc;    /* borde exterior */
+}
+.shared-docs-excel-table td, .shared-docs-excel-table tr {
+    white-space: nowrap;
+    max-width: 70vw;
+    padding: 8px 12px;
+    border: 1px solid #ccc; 
+    overflow:hidden;
+}
+
+/**
+  
+  END: TABLE EXCELL CIE
+  
+  **/
 
 @keyframes shared-docs-spin {
   to {
