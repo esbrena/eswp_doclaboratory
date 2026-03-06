@@ -630,7 +630,12 @@ class Permission_Manager
                 continue;
             }
 
-            return $this->permission_state_from_row($permission, $capability);
+            $state = $this->permission_state_from_row($permission, $capability);
+            if ($state === self::PERMISSION_INHERIT) {
+                continue;
+            }
+
+            return $state;
         }
 
         return self::PERMISSION_INHERIT;
@@ -662,7 +667,10 @@ class Permission_Manager
 
         $file_permission = $this->get_cached_file_permission($user_id, $file_id);
         if ($file_permission) {
-            return $this->permission_state_from_row($file_permission, $capability);
+            $file_state = $this->permission_state_from_row($file_permission, $capability);
+            if ($file_state !== self::PERMISSION_INHERIT) {
+                return $file_state;
+            }
         }
 
         $folder_id = $this->get_folder_id_from_file($file_id);
@@ -684,6 +692,32 @@ class Permission_Manager
     private function permission_state_from_row($permission, $capability)
     {
         $capability = $this->normalize_capability($capability);
+
+        $uses_state_columns = isset($permission->read_state)
+            && isset($permission->download_state)
+            && isset($permission->edit_excel_state);
+
+        if ($uses_state_columns) {
+            $read_state = $this->normalize_state_value($permission->read_state);
+            if ($capability === 'can_read') {
+                return $read_state;
+            }
+
+            if ($read_state === self::PERMISSION_DENY) {
+                return self::PERMISSION_DENY;
+            }
+
+            if ($read_state === self::PERMISSION_INHERIT) {
+                return self::PERMISSION_INHERIT;
+            }
+
+            $state_column = $this->state_column_for_capability($capability);
+            if (! isset($permission->{$state_column})) {
+                return self::PERMISSION_INHERIT;
+            }
+
+            return $this->normalize_state_value($permission->{$state_column});
+        }
 
         if (empty($permission->can_read)) {
             return self::PERMISSION_DENY;
@@ -707,6 +741,46 @@ class Permission_Manager
     {
         $supported = array('can_read', 'can_download', 'can_edit_excel');
         return in_array($capability, $supported, true) ? $capability : 'can_read';
+    }
+
+    /**
+     * Mapea capability a columna tri-state.
+     *
+     * @param string $capability Capability.
+     *
+     * @return string
+     */
+    private function state_column_for_capability($capability)
+    {
+        if ($capability === 'can_download') {
+            return 'download_state';
+        }
+
+        if ($capability === 'can_edit_excel') {
+            return 'edit_excel_state';
+        }
+
+        return 'read_state';
+    }
+
+    /**
+     * Normaliza valor de estado tri-state.
+     *
+     * @param mixed $value Valor.
+     *
+     * @return int
+     */
+    private function normalize_state_value($value)
+    {
+        $value = (int) $value;
+        if ($value > 0) {
+            return self::PERMISSION_ALLOW;
+        }
+        if ($value < 0) {
+            return self::PERMISSION_DENY;
+        }
+
+        return self::PERMISSION_INHERIT;
     }
 
     /**

@@ -10,12 +10,23 @@ if (! defined('ABSPATH')) {
 
 class Permission_Repository
 {
+    const STATE_DENY = -1;
+    const STATE_INHERIT = 0;
+    const STATE_ALLOW = 1;
+
     /**
      * Nombre de tabla de permisos.
      *
      * @var string
      */
     private $table_name;
+
+    /**
+     * Cache de disponibilidad de columnas tri-state.
+     *
+     * @var bool|null
+     */
+    private $has_state_columns = null;
 
     public function __construct()
     {
@@ -65,22 +76,36 @@ class Permission_Repository
 
         $existing = $this->get_permission_by_user_folder($user_id, $folder_id, false);
 
+        $read_state = $this->extract_state($data, 'read_state', 'can_read');
+        $download_state = $this->extract_state($data, 'download_state', 'can_download');
+        $edit_excel_state = $this->extract_state($data, 'edit_excel_state', 'can_edit_excel');
+
         $payload = array(
             'user_id'        => $user_id,
             'folder_id'      => $folder_id,
-            'can_read'       => empty($data['can_read']) ? 0 : 1,
-            'can_download'   => empty($data['can_download']) ? 0 : 1,
-            'can_edit_excel' => empty($data['can_edit_excel']) ? 0 : 1,
+            'can_read'       => $read_state === self::STATE_ALLOW ? 1 : 0,
+            'can_download'   => ($read_state === self::STATE_ALLOW && $download_state === self::STATE_ALLOW) ? 1 : 0,
+            'can_edit_excel' => ($read_state === self::STATE_ALLOW && $edit_excel_state === self::STATE_ALLOW) ? 1 : 0,
             'expires_at'     => ! empty($data['expires_at']) ? $data['expires_at'] : null,
             'updated_at'     => current_time('mysql'),
         );
+        $format = array('%d', '%d', '%d', '%d', '%d', '%s', '%s');
+
+        if ($this->has_state_columns()) {
+            $payload['read_state'] = $read_state;
+            $payload['download_state'] = $download_state;
+            $payload['edit_excel_state'] = $edit_excel_state;
+            $format[] = '%d';
+            $format[] = '%d';
+            $format[] = '%d';
+        }
 
         if ($existing) {
             $updated = $wpdb->update(
                 $this->table_name,
                 $payload,
                 array('id' => (int) $existing->id),
-                array('%d', '%d', '%d', '%d', '%d', '%s', '%s'),
+                $format,
                 array('%d')
             );
 
@@ -96,7 +121,7 @@ class Permission_Repository
         $inserted = $wpdb->insert(
             $this->table_name,
             $payload,
-            array('%d', '%d', '%d', '%d', '%d', '%s', '%s', '%s')
+            array_merge($format, array('%s'))
         );
 
         if ($inserted === false) {
@@ -257,19 +282,91 @@ class Permission_Repository
 
         $user_id = (int) $user_id;
         $now = current_time('mysql');
-        $count = (int) $wpdb->get_var(
-            $wpdb->prepare(
-                "SELECT COUNT(1)
-                 FROM {$this->table_name}
-                 WHERE user_id = %d
-                   AND can_read = 1
-                   AND (expires_at IS NULL OR expires_at >= %s)",
-                $user_id,
-                $now
-            )
-        );
+        if ($this->has_state_columns()) {
+            $count = (int) $wpdb->get_var(
+                $wpdb->prepare(
+                    "SELECT COUNT(1)
+                     FROM {$this->table_name}
+                     WHERE user_id = %d
+                       AND read_state = 1
+                       AND (expires_at IS NULL OR expires_at >= %s)",
+                    $user_id,
+                    $now
+                )
+            );
+        } else {
+            $count = (int) $wpdb->get_var(
+                $wpdb->prepare(
+                    "SELECT COUNT(1)
+                     FROM {$this->table_name}
+                     WHERE user_id = %d
+                       AND can_read = 1
+                       AND (expires_at IS NULL OR expires_at >= %s)",
+                    $user_id,
+                    $now
+                )
+            );
+        }
 
         return $count > 0;
+    }
+
+    /**
+     * Obtiene estado tri-state desde data de entrada.
+     *
+     * @param array  $data       Datos.
+     * @param string $state_key  Campo tri-state.
+     * @param string $legacy_key Campo legacy bool.
+     *
+     * @return int
+     */
+    private function extract_state($data, $state_key, $legacy_key)
+    {
+        if (array_key_exists($state_key, (array) $data)) {
+            $state = (int) $data[$state_key];
+            if ($state > 0) {
+                return self::STATE_ALLOW;
+            }
+            if ($state < 0) {
+                return self::STATE_DENY;
+            }
+
+            return self::STATE_INHERIT;
+        }
+
+        return empty($data[$legacy_key]) ? self::STATE_DENY : self::STATE_ALLOW;
+    }
+
+    /**
+     * Indica si la tabla tiene columnas tri-state.
+     *
+     * @return bool
+     */
+    private function has_state_columns()
+    {
+        global $wpdb;
+
+        if ($this->has_state_columns !== null) {
+            return $this->has_state_columns;
+        }
+
+        $columns = array('read_state', 'download_state', 'edit_excel_state');
+        foreach ($columns as $column) {
+            $exists = $wpdb->get_var(
+                $wpdb->prepare(
+                    "SHOW COLUMNS FROM {$this->table_name} LIKE %s",
+                    $column
+                )
+            );
+
+            if (! $exists) {
+                $this->has_state_columns = false;
+                return false;
+            }
+        }
+
+        $this->has_state_columns = true;
+        return true;
     }
 
     /**

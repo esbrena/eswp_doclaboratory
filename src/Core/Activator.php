@@ -13,7 +13,7 @@ class Activator
     /**
      * Versión de esquema DB.
      */
-    const DB_VERSION = '1.1.0';
+    const DB_VERSION = '1.2.0';
 
     /**
      * Ejecuta lógica de activación.
@@ -68,6 +68,9 @@ class Activator
             can_read TINYINT(1) NOT NULL DEFAULT 1,
             can_download TINYINT(1) NOT NULL DEFAULT 1,
             can_edit_excel TINYINT(1) NOT NULL DEFAULT 0,
+            read_state TINYINT NOT NULL DEFAULT 0,
+            download_state TINYINT NOT NULL DEFAULT 0,
+            edit_excel_state TINYINT NOT NULL DEFAULT 0,
             expires_at DATETIME NULL,
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
@@ -99,6 +102,9 @@ class Activator
             can_read TINYINT(1) NOT NULL DEFAULT 1,
             can_download TINYINT(1) NOT NULL DEFAULT 1,
             can_edit_excel TINYINT(1) NOT NULL DEFAULT 0,
+            read_state TINYINT NOT NULL DEFAULT 0,
+            download_state TINYINT NOT NULL DEFAULT 0,
+            edit_excel_state TINYINT NOT NULL DEFAULT 0,
             expires_at DATETIME NULL,
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
@@ -112,6 +118,46 @@ class Activator
         dbDelta($permissions_sql);
         dbDelta($file_permissions_sql);
         dbDelta($activity_sql);
+
+        self::backfill_state_columns($permissions_table);
+        self::backfill_state_columns($file_permissions_table);
+    }
+
+    /**
+     * Migra columnas tri-state desde permisos legacy booleanos.
+     *
+     * @param string $table_name Tabla de permisos.
+     *
+     * @return void
+     */
+    private static function backfill_state_columns($table_name)
+    {
+        global $wpdb;
+
+        $required = array('read_state', 'download_state', 'edit_excel_state');
+        foreach ($required as $column) {
+            $exists = $wpdb->get_var(
+                $wpdb->prepare(
+                    "SHOW COLUMNS FROM {$table_name} LIKE %s",
+                    $column
+                )
+            );
+            if (! $exists) {
+                return;
+            }
+        }
+
+        // Se ejecuta durante upgrade para convertir filas legacy sin estado explícito.
+        $sql = "UPDATE {$table_name}
+                SET
+                  read_state = CASE WHEN can_read = 1 THEN 1 ELSE -1 END,
+                  download_state = CASE WHEN can_read = 1 AND can_download = 1 THEN 1 ELSE -1 END,
+                  edit_excel_state = CASE WHEN can_read = 1 AND can_edit_excel = 1 THEN 1 ELSE -1 END
+                WHERE read_state = 0
+                  AND download_state = 0
+                  AND edit_excel_state = 0";
+
+        $wpdb->query($sql);
     }
 
     /**
