@@ -8,6 +8,10 @@ if (! defined('ABSPATH')) {
 
 class Permission_Manager
 {
+    const PERMISSION_DENY = -1;
+    const PERMISSION_INHERIT = 0;
+    const PERMISSION_ALLOW = 1;
+
     /**
      * @var Permission_Repository
      */
@@ -17,6 +21,20 @@ class Permission_Manager
      * @var File_Permission_Repository
      */
     private $file_repository;
+
+    /**
+     * Caché en memoria de permisos folder por usuario/carpeta.
+     *
+     * @var array
+     */
+    private $folder_permission_cache = array();
+
+    /**
+     * Caché en memoria de permisos file por usuario/archivo.
+     *
+     * @var array
+     */
+    private $file_permission_cache = array();
 
     public function __construct(Permission_Repository $folder_repository, File_Permission_Repository $file_repository)
     {
@@ -106,11 +124,7 @@ class Permission_Manager
             return true;
         }
 
-        if ($this->has_capability_for_folder((int) $user_id, (int) $folder_id, 'can_read')) {
-            return true;
-        }
-
-        return $this->user_has_any_readable_file_in_folder((int) $user_id, (int) $folder_id);
+        return $this->resolve_folder_permission_state((int) $user_id, (int) $folder_id, 'can_read') === self::PERMISSION_ALLOW;
     }
 
     /**
@@ -123,7 +137,7 @@ class Permission_Manager
      */
     public function user_can_download($user_id, $folder_id)
     {
-        return $this->has_capability_for_folder((int) $user_id, (int) $folder_id, 'can_download');
+        return $this->resolve_folder_permission_state((int) $user_id, (int) $folder_id, 'can_download') === self::PERMISSION_ALLOW;
     }
 
     /**
@@ -136,7 +150,7 @@ class Permission_Manager
      */
     public function user_can_edit_excel($user_id, $folder_id)
     {
-        return $this->has_capability_for_folder((int) $user_id, (int) $folder_id, 'can_edit_excel');
+        return $this->resolve_folder_permission_state((int) $user_id, (int) $folder_id, 'can_edit_excel') === self::PERMISSION_ALLOW;
     }
 
     /**
@@ -160,16 +174,7 @@ class Permission_Manager
             return true;
         }
 
-        if ($this->has_capability_for_file($user_id, $file_id, $capability)) {
-            return true;
-        }
-
-        $folder_id = $this->get_folder_id_from_file($file_id);
-        if ($folder_id <= 0) {
-            return false;
-        }
-
-        return $this->has_capability_for_folder($user_id, $folder_id, $capability);
+        return $this->resolve_file_permission_state($user_id, $file_id, $capability) === self::PERMISSION_ALLOW;
     }
 
     /**
@@ -195,6 +200,7 @@ class Permission_Manager
     public function get_accessible_folder_ids($user_id, $capability = 'can_read')
     {
         $user_id = (int) $user_id;
+        $capability = $this->normalize_capability($capability);
         if ($user_id <= 0) {
             return array();
         }
@@ -212,51 +218,19 @@ class Permission_Manager
             );
         }
 
-        $permissions = $this->folder_repository->get_user_permissions($user_id, true);
-        $folder_ids = array();
-        foreach ($permissions as $permission) {
-            if (! empty($permission->{$capability}) && ! empty($permission->can_read)) {
-                $folder_ids[] = (int) $permission->folder_id;
-            }
-        }
-
-        $file_ids = $this->file_repository->get_valid_file_ids_for_user($user_id, $capability);
-        if (! empty($file_ids)) {
-            foreach ($file_ids as $file_id) {
-                $folder_id = $this->get_folder_id_from_file((int) $file_id);
-                if ($folder_id > 0) {
-                    $folder_ids[] = $folder_id;
-                }
-            }
-        }
-
-        $folder_ids = array_values(array_unique(array_map('intval', $folder_ids)));
-        if (empty($folder_ids)) {
+        $all_folder_ids = $this->get_all_folder_ids();
+        if (empty($all_folder_ids)) {
             return array();
         }
 
-        if (! $this->is_inheritance_enabled()) {
-            return $folder_ids;
-        }
-
-        $inherited = $folder_ids;
-        foreach ($folder_ids as $folder_id) {
-            $children = get_posts(
-                array(
-                    'post_type'      => 'shared_folder',
-                    'post_status'    => array('publish', 'private'),
-                    'posts_per_page' => -1,
-                    'fields'         => 'ids',
-                    'child_of'       => (int) $folder_id,
-                )
-            );
-
-            if (! empty($children)) {
-                $inherited = array_merge($inherited, array_map('intval', $children));
+        $allowed = array();
+        foreach ($all_folder_ids as $folder_id) {
+            if ($this->resolve_folder_permission_state($user_id, (int) $folder_id, $capability) === self::PERMISSION_ALLOW) {
+                $allowed[] = (int) $folder_id;
             }
         }
 
-        return array_values(array_unique($inherited));
+        return array_values(array_unique($allowed));
     }
 
     /**
@@ -270,6 +244,7 @@ class Permission_Manager
     public function get_accessible_file_ids($user_id, $capability = 'can_read')
     {
         $user_id = (int) $user_id;
+        $capability = $this->normalize_capability($capability);
         if ($user_id <= 0) {
             return array();
         }
@@ -291,8 +266,10 @@ class Permission_Manager
             );
         }
 
+        // 1) Permitidos explícitos por archivo.
         $file_ids = $this->file_repository->get_valid_file_ids_for_user($user_id, $capability);
 
+        // 2) Permitidos por herencia de carpeta.
         $folder_ids = $this->get_accessible_folder_ids($user_id, $capability);
         if (! empty($folder_ids)) {
             $folder_file_ids = get_posts(
@@ -314,6 +291,20 @@ class Permission_Manager
             if (! empty($folder_file_ids)) {
                 $file_ids = array_merge($file_ids, array_map('intval', $folder_file_ids));
             }
+        }
+
+        // 3) Denegaciones explícitas por archivo tienen prioridad sobre carpeta.
+        $denied_file_ids = $this->file_repository->get_denied_file_ids_for_user($user_id, $capability);
+        if (! empty($denied_file_ids) && ! empty($file_ids)) {
+            $denied_lookup = array_fill_keys(array_map('intval', $denied_file_ids), true);
+            $file_ids = array_values(
+                array_filter(
+                    array_map('intval', $file_ids),
+                    static function ($file_id) use ($denied_lookup) {
+                        return ! isset($denied_lookup[(int) $file_id]);
+                    }
+                )
+            );
         }
 
         return array_values(array_unique(array_map('intval', $file_ids)));
@@ -601,30 +592,31 @@ class Permission_Manager
     }
 
     /**
-     * Comprueba capability para una carpeta (con herencia opcional).
+     * Resuelve permiso efectivo en carpeta.
+     *
+     * Reglas:
+     * - Se evalúa carpeta específica y, opcionalmente, ancestros (si herencia activada).
+     * - Gana la regla más cercana (más específica).
+     * - No hay escalado desde archivo hacia carpeta.
      *
      * @param int    $user_id    Usuario.
      * @param int    $folder_id  Carpeta.
      * @param string $capability Capability.
      *
-     * @return bool
+     * @return int self::PERMISSION_*
      */
-    private function has_capability_for_folder($user_id, $folder_id, $capability)
+    private function resolve_folder_permission_state($user_id, $folder_id, $capability)
     {
         $user_id = (int) $user_id;
         $folder_id = (int) $folder_id;
+        $capability = $this->normalize_capability($capability);
 
         if ($user_id <= 0 || $folder_id <= 0) {
-            return false;
+            return self::PERMISSION_INHERIT;
         }
 
         if ($this->is_manager_user($user_id)) {
-            return true;
-        }
-
-        $supported = array('can_read', 'can_download', 'can_edit_excel');
-        if (! in_array($capability, $supported, true)) {
-            $capability = 'can_read';
+            return self::PERMISSION_ALLOW;
         }
 
         $folder_chain = array($folder_id);
@@ -633,84 +625,153 @@ class Permission_Manager
         }
 
         foreach ($folder_chain as $check_folder_id) {
-            $permission = $this->folder_repository->get_permission_by_user_folder($user_id, (int) $check_folder_id, true);
+            $permission = $this->get_cached_folder_permission($user_id, (int) $check_folder_id);
             if (! $permission) {
                 continue;
             }
 
-            if (empty($permission->can_read)) {
-                continue;
-            }
-
-            if (! empty($permission->{$capability})) {
-                return true;
-            }
+            return $this->permission_state_from_row($permission, $capability);
         }
 
-        return false;
+        return self::PERMISSION_INHERIT;
     }
 
     /**
-     * Comprueba capability para archivo.
+     * Resuelve permiso efectivo en archivo con precedencia:
+     * File deny > File allow > Folder deny > Folder allow > Default deny.
      *
      * @param int    $user_id    Usuario.
      * @param int    $file_id    Archivo.
      * @param string $capability Capability.
      *
-     * @return bool
+     * @return int self::PERMISSION_*
      */
-    private function has_capability_for_file($user_id, $file_id, $capability)
+    private function resolve_file_permission_state($user_id, $file_id, $capability)
     {
         $user_id = (int) $user_id;
         $file_id = (int) $file_id;
+        $capability = $this->normalize_capability($capability);
+
         if ($user_id <= 0 || $file_id <= 0) {
-            return false;
+            return self::PERMISSION_INHERIT;
         }
 
-        $supported = array('can_read', 'can_download', 'can_edit_excel');
-        if (! in_array($capability, $supported, true)) {
-            $capability = 'can_read';
+        if ($this->is_manager_user($user_id)) {
+            return self::PERMISSION_ALLOW;
         }
 
-        $permission = $this->file_repository->get_permission_by_user_file($user_id, $file_id, true);
-        if (! $permission) {
-            return false;
+        $file_permission = $this->get_cached_file_permission($user_id, $file_id);
+        if ($file_permission) {
+            return $this->permission_state_from_row($file_permission, $capability);
         }
 
-        if (empty($permission->can_read)) {
-            return false;
+        $folder_id = $this->get_folder_id_from_file($file_id);
+        if ($folder_id <= 0) {
+            return self::PERMISSION_INHERIT;
         }
 
-        return ! empty($permission->{$capability});
+        return $this->resolve_folder_permission_state($user_id, $folder_id, $capability);
     }
 
     /**
-     * Verifica si hay archivos directos legibles en carpeta.
+     * Convierte una fila de permiso binario en estado allow/deny.
+     *
+     * @param object $permission Row DB.
+     * @param string $capability Capability.
+     *
+     * @return int self::PERMISSION_*
+     */
+    private function permission_state_from_row($permission, $capability)
+    {
+        $capability = $this->normalize_capability($capability);
+
+        if (empty($permission->can_read)) {
+            return self::PERMISSION_DENY;
+        }
+
+        if ($capability === 'can_read') {
+            return self::PERMISSION_ALLOW;
+        }
+
+        return ! empty($permission->{$capability}) ? self::PERMISSION_ALLOW : self::PERMISSION_DENY;
+    }
+
+    /**
+     * Normaliza capability soportada.
+     *
+     * @param string $capability Capability.
+     *
+     * @return string
+     */
+    private function normalize_capability($capability)
+    {
+        $supported = array('can_read', 'can_download', 'can_edit_excel');
+        return in_array($capability, $supported, true) ? $capability : 'can_read';
+    }
+
+    /**
+     * Obtiene (y cachea) permiso válido folder por usuario/carpeta.
      *
      * @param int $user_id   Usuario.
      * @param int $folder_id Carpeta.
      *
-     * @return bool
+     * @return object|null
      */
-    private function user_has_any_readable_file_in_folder($user_id, $folder_id)
+    private function get_cached_folder_permission($user_id, $folder_id)
     {
+        $user_id = (int) $user_id;
         $folder_id = (int) $folder_id;
-        if ($folder_id <= 0) {
-            return false;
+
+        if (! isset($this->folder_permission_cache[$user_id])) {
+            $this->folder_permission_cache[$user_id] = array();
         }
 
-        $file_ids = $this->file_repository->get_valid_file_ids_for_user((int) $user_id, 'can_read');
-        if (empty($file_ids)) {
-            return false;
+        if (! array_key_exists($folder_id, $this->folder_permission_cache[$user_id])) {
+            $this->folder_permission_cache[$user_id][$folder_id] = $this->folder_repository->get_permission_by_user_folder($user_id, $folder_id, true);
         }
 
-        foreach ($file_ids as $file_id) {
-            if ($this->get_folder_id_from_file((int) $file_id) === $folder_id) {
-                return true;
-            }
+        return $this->folder_permission_cache[$user_id][$folder_id];
+    }
+
+    /**
+     * Obtiene (y cachea) permiso válido file por usuario/archivo.
+     *
+     * @param int $user_id Usuario.
+     * @param int $file_id Archivo.
+     *
+     * @return object|null
+     */
+    private function get_cached_file_permission($user_id, $file_id)
+    {
+        $user_id = (int) $user_id;
+        $file_id = (int) $file_id;
+
+        if (! isset($this->file_permission_cache[$user_id])) {
+            $this->file_permission_cache[$user_id] = array();
         }
 
-        return false;
+        if (! array_key_exists($file_id, $this->file_permission_cache[$user_id])) {
+            $this->file_permission_cache[$user_id][$file_id] = $this->file_repository->get_permission_by_user_file($user_id, $file_id, true);
+        }
+
+        return $this->file_permission_cache[$user_id][$file_id];
+    }
+
+    /**
+     * Devuelve todos los IDs de carpeta del gestor.
+     *
+     * @return array
+     */
+    private function get_all_folder_ids()
+    {
+        return get_posts(
+            array(
+                'post_type'      => 'shared_folder',
+                'post_status'    => array('publish', 'private'),
+                'posts_per_page' => -1,
+                'fields'         => 'ids',
+            )
+        );
     }
 
     /**

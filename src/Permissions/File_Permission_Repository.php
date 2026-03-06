@@ -274,6 +274,38 @@ class File_Permission_Repository
     }
 
     /**
+     * Devuelve IDs de archivo denegados explícitamente para un usuario.
+     *
+     * @param int    $user_id    Usuario.
+     * @param string $capability Campo capability.
+     *
+     * @return array
+     */
+    public function get_denied_file_ids_for_user($user_id, $capability = 'can_read')
+    {
+        global $wpdb;
+
+        $user_id = (int) $user_id;
+        $supported = array('can_read', 'can_download', 'can_edit_excel');
+        if (! in_array($capability, $supported, true)) {
+            $capability = 'can_read';
+        }
+
+        $sql = $wpdb->prepare(
+            "SELECT file_id
+             FROM {$this->table_name}
+             WHERE user_id = %d
+               AND (can_read = 0 OR {$capability} = 0)
+               AND (expires_at IS NULL OR expires_at >= %s)",
+            $user_id,
+            current_time('mysql')
+        );
+
+        $rows = (array) $wpdb->get_col($sql);
+        return array_map('intval', $rows);
+    }
+
+    /**
      * Verifica si el usuario tiene algún permiso válido por archivo.
      *
      * @param int $user_id Usuario.
