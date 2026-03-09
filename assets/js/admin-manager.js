@@ -505,19 +505,33 @@
         tr.appendChild(expiresCell);
 
         const actionsCell = document.createElement("td");
-        const editLink = document.createElement("a");
-        editLink.href = row.edit_url || "#";
-        editLink.textContent = "Editar";
-        actionsCell.appendChild(editLink);
+        const hasEditUrl = !!row.edit_url;
+        const hasRevokeUrl = !!row.revoke_url;
+        if (hasEditUrl) {
+          const editLink = document.createElement("a");
+          editLink.href = row.edit_url;
+          editLink.textContent = row.inherited ? "Editar origen" : "Editar";
+          actionsCell.appendChild(editLink);
+        } else {
+          actionsCell.appendChild(document.createTextNode("—"));
+        }
 
-        const sep = document.createTextNode(" | ");
-        actionsCell.appendChild(sep);
+        if (hasRevokeUrl) {
+          if (hasEditUrl) {
+            actionsCell.appendChild(document.createTextNode(" | "));
+          }
+          const revokeLink = document.createElement("a");
+          revokeLink.href = row.revoke_url;
+          revokeLink.textContent = row.inherited ? "Revocar origen" : "Revocar";
+          revokeLink.setAttribute("data-access-revoke", "1");
+          actionsCell.appendChild(revokeLink);
 
-        const revokeLink = document.createElement("a");
-        revokeLink.href = row.revoke_url || "#";
-        revokeLink.textContent = "Revocar";
-        revokeLink.setAttribute("data-access-revoke", "1");
-        actionsCell.appendChild(revokeLink);
+          revokeLink.addEventListener("click", (event) => {
+            if (!window.confirm("¿Revocar este permiso?")) {
+              event.preventDefault();
+            }
+          });
+        }
 
         const userPermissionsHtml = row.user_id ? userPermissionsHtmlByUser[row.user_id] : "";
         let detailRow = null;
@@ -544,12 +558,6 @@
             detailRow.hidden = !detailRow.hidden;
           });
         }
-
-        revokeLink.addEventListener("click", (event) => {
-          if (!window.confirm("¿Revocar este permiso?")) {
-            event.preventDefault();
-          }
-        });
 
         tr.appendChild(actionsCell);
         tableBody.appendChild(tr);
@@ -670,21 +678,31 @@
         expiresCell.textContent = row.expires_at || "";
         tr.appendChild(expiresCell);
         const actionsCell = document.createElement("td");
-        const detailsLink = document.createElement("a");
-        detailsLink.href = row.edit_url || "#";
-        detailsLink.textContent = "Editar";
-        actionsCell.appendChild(detailsLink);
-        const separator = document.createTextNode(" | ");
-        actionsCell.appendChild(separator);
-        const revokeLink = document.createElement("a");
-        revokeLink.href = row.revoke_url || "#";
-        revokeLink.textContent = "Revocar";
-        revokeLink.addEventListener("click", (event) => {
-          if (!window.confirm("¿Revocar este permiso?")) {
-            event.preventDefault();
+        const hasEditUrl = !!row.edit_url;
+        const hasRevokeUrl = !!row.revoke_url;
+        if (hasEditUrl) {
+          const detailsLink = document.createElement("a");
+          detailsLink.href = row.edit_url;
+          detailsLink.textContent = row.inherited ? "Editar origen" : "Editar";
+          actionsCell.appendChild(detailsLink);
+        } else {
+          actionsCell.appendChild(document.createTextNode("—"));
+        }
+
+        if (hasRevokeUrl) {
+          if (hasEditUrl) {
+            actionsCell.appendChild(document.createTextNode(" | "));
           }
-        });
-        actionsCell.appendChild(revokeLink);
+          const revokeLink = document.createElement("a");
+          revokeLink.href = row.revoke_url;
+          revokeLink.textContent = row.inherited ? "Revocar origen" : "Revocar";
+          revokeLink.addEventListener("click", (event) => {
+            if (!window.confirm("¿Revocar este permiso?")) {
+              event.preventDefault();
+            }
+          });
+          actionsCell.appendChild(revokeLink);
+        }
 
         const userPermissionsHtml = row.user_id ? userPermissionsHtmlByUser[row.user_id] : "";
         let detailsRow = null;

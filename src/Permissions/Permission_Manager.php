@@ -442,6 +442,20 @@ class Permission_Manager
 
         $folder_permissions = $this->folder_repository->get_user_permissions($user_id, false);
         $file_permissions = $this->file_repository->get_user_permissions($user_id, false);
+        $explicit_file_ids = array_values(
+            array_unique(
+                array_filter(
+                    array_map(
+                        static function ($permission) {
+                            return isset($permission->file_id) ? (int) $permission->file_id : 0;
+                        },
+                        (array) $file_permissions
+                    )
+                )
+            )
+        );
+        $effective_file_ids = $this->get_accessible_file_ids($user_id, 'can_read');
+        $inherited_file_ids = array_values(array_diff(array_map('intval', $effective_file_ids), $explicit_file_ids));
         $is_manager = $this->is_manager_user($user_id);
         $can_edit_links = $this->is_manager_user(get_current_user_id());
 
@@ -579,6 +593,46 @@ class Permission_Manager
                                         —
                                     <?php endif; ?>
                                 </td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                <?php endif; ?>
+
+                <h4 style="margin-top:16px;"><?php esc_html_e('Accesos heredados por carpeta en archivos', 'shared-docs-manager'); ?></h4>
+                <?php if (empty($inherited_file_ids)) : ?>
+                    <p><?php esc_html_e('No hay accesos heredados activos en archivos.', 'shared-docs-manager'); ?></p>
+                <?php else : ?>
+                    <table class="widefat striped">
+                        <thead>
+                        <tr>
+                            <th><?php esc_html_e('Archivo', 'shared-docs-manager'); ?></th>
+                            <th><?php esc_html_e('Carpeta', 'shared-docs-manager'); ?></th>
+                            <th><?php esc_html_e('Lectura', 'shared-docs-manager'); ?></th>
+                            <th><?php esc_html_e('Descarga', 'shared-docs-manager'); ?></th>
+                            <th><?php esc_html_e('Edición Excel', 'shared-docs-manager'); ?></th>
+                            <th><?php esc_html_e('Origen', 'shared-docs-manager'); ?></th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <?php foreach ($inherited_file_ids as $file_id) : ?>
+                            <?php
+                            $file_id = (int) $file_id;
+                            $file_title = get_the_title($file_id);
+                            $file_title = $file_title ? $file_title : __('(Archivo eliminado)', 'shared-docs-manager');
+                            $folder_id = $this->get_folder_id_from_file($file_id);
+                            $folder_title = $folder_id > 0 ? get_the_title($folder_id) : '';
+                            $folder_title = $folder_title ? $folder_title : __('(Sin carpeta)', 'shared-docs-manager');
+                            $can_download_file = $this->user_can_access_file($user_id, $file_id, 'can_download');
+                            $can_edit_excel_file = $this->user_can_access_file($user_id, $file_id, 'can_edit_excel');
+                            ?>
+                            <tr>
+                                <td><?php echo esc_html($file_title); ?></td>
+                                <td><?php echo esc_html($folder_title); ?></td>
+                                <td><?php esc_html_e('Permitir (heredado)', 'shared-docs-manager'); ?></td>
+                                <td><?php echo $can_download_file ? esc_html__('Permitir (heredado)', 'shared-docs-manager') : esc_html__('Denegar (heredado)', 'shared-docs-manager'); ?></td>
+                                <td><?php echo $can_edit_excel_file ? esc_html__('Permitir (heredado)', 'shared-docs-manager') : esc_html__('Denegar (heredado)', 'shared-docs-manager'); ?></td>
+                                <td><?php esc_html_e('Permisos de carpeta', 'shared-docs-manager'); ?></td>
                             </tr>
                         <?php endforeach; ?>
                         </tbody>

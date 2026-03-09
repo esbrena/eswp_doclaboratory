@@ -3373,6 +3373,8 @@ class Admin_Controller
         $folder_sets = array();
         $file_sets = array();
         $folder_file_sets = array();
+        $users_by_folder = array();
+        $explicit_file_users = array();
 
         $folder_permissions = $this->permission_repository->get_all_permissions();
         foreach ((array) $folder_permissions as $permission) {
@@ -3390,6 +3392,11 @@ class Admin_Controller
                 $folder_sets[$folder_id] = array();
             }
             $folder_sets[$folder_id][$user_id] = true;
+
+            if (! isset($users_by_folder[$folder_id])) {
+                $users_by_folder[$folder_id] = array();
+            }
+            $users_by_folder[$folder_id][$user_id] = true;
         }
 
         $file_permissions = $this->file_permission_repository->get_all_permissions();
@@ -3408,9 +3415,62 @@ class Admin_Controller
                 $file_sets[$file_id] = array();
             }
             $file_sets[$file_id][$user_id] = true;
+            if (! isset($explicit_file_users[$file_id])) {
+                $explicit_file_users[$file_id] = array();
+            }
+            $explicit_file_users[$file_id][$user_id] = true;
 
             $folder_id = isset($file_folder_map[$file_id]) ? (int) $file_folder_map[$file_id] : 0;
             if ($folder_id > 0) {
+                if (! isset($folder_file_sets[$folder_id])) {
+                    $folder_file_sets[$folder_id] = array();
+                }
+                $folder_file_sets[$folder_id][$user_id] = true;
+            }
+        }
+
+        // Añade usuarios con acceso heredado desde carpeta a archivo (sin permiso explícito en archivo).
+        $inheritance_enabled = $this->is_permission_inheritance_enabled();
+        foreach ($files as $file) {
+            $file_id = (int) $file->ID;
+            $folder_id = isset($file_folder_map[$file_id]) ? (int) $file_folder_map[$file_id] : 0;
+            if ($file_id <= 0 || $folder_id <= 0) {
+                continue;
+            }
+
+            $candidate_folders = array($folder_id);
+            if ($inheritance_enabled) {
+                $candidate_folders = array_merge($candidate_folders, array_map('intval', get_post_ancestors($folder_id)));
+            }
+
+            $candidate_users = array();
+            foreach ($candidate_folders as $candidate_folder_id) {
+                if (isset($users_by_folder[$candidate_folder_id])) {
+                    foreach (array_keys($users_by_folder[$candidate_folder_id]) as $candidate_user_id) {
+                        $candidate_users[(int) $candidate_user_id] = true;
+                    }
+                }
+            }
+
+            foreach (array_keys($candidate_users) as $user_id) {
+                $user_id = (int) $user_id;
+                if ($user_id <= 0) {
+                    continue;
+                }
+
+                if (isset($explicit_file_users[$file_id][$user_id])) {
+                    continue;
+                }
+
+                if (! $this->permission_manager->user_can_access_file($user_id, $file_id, 'can_read')) {
+                    continue;
+                }
+
+                if (! isset($file_sets[$file_id])) {
+                    $file_sets[$file_id] = array();
+                }
+                $file_sets[$file_id][$user_id] = true;
+
                 if (! isset($folder_file_sets[$folder_id])) {
                     $folder_file_sets[$folder_id] = array();
                 }
@@ -3469,6 +3529,9 @@ class Admin_Controller
         $by_file = array();
         $date_format = get_option('date_format') . ' ' . get_option('time_format');
         $user_permissions_cache = array();
+        $users_by_folder = array();
+        $folder_permission_index = array();
+        $explicit_file_users = array();
 
         $folder_permissions = $this->permission_repository->get_all_permissions();
         foreach ((array) $folder_permissions as $permission) {
@@ -3525,7 +3588,7 @@ class Admin_Controller
                     : '';
             }
 
-            $by_folder[$folder_id][] = array(
+            $row = array(
                 'id'             => $permission_id,
                 'user_id'        => $user_id,
                 'user'           => $user_full,
@@ -3542,6 +3605,15 @@ class Admin_Controller
                 'edit_url'       => $edit_url,
                 'revoke_url'     => $revoke_url,
             );
+            $by_folder[$folder_id][] = $row;
+            if (! isset($users_by_folder[$folder_id])) {
+                $users_by_folder[$folder_id] = array();
+            }
+            $users_by_folder[$folder_id][$user_id] = true;
+            if (! isset($folder_permission_index[$folder_id])) {
+                $folder_permission_index[$folder_id] = array();
+            }
+            $folder_permission_index[$folder_id][$user_id] = $row;
         }
 
         $file_permissions = $this->file_permission_repository->get_all_permissions();
@@ -3599,7 +3671,7 @@ class Admin_Controller
                     : '';
             }
 
-            $by_file[$file_id][] = array(
+            $row = array(
                 'id'             => $permission_id,
                 'user_id'        => $user_id,
                 'user'           => $user_full,
@@ -3616,6 +3688,106 @@ class Admin_Controller
                 'edit_url'       => $edit_url,
                 'revoke_url'     => $revoke_url,
             );
+            $by_file[$file_id][] = $row;
+            if (! isset($explicit_file_users[$file_id])) {
+                $explicit_file_users[$file_id] = array();
+            }
+            $explicit_file_users[$file_id][$user_id] = true;
+        }
+
+        // Añade filas heredadas desde carpeta cuando no existe permiso explícito por archivo.
+        $inheritance_enabled = $this->is_permission_inheritance_enabled();
+        foreach ((array) $files as $file) {
+            $file_id = (int) $file->ID;
+            if ($file_id <= 0) {
+                continue;
+            }
+
+            $folder_id = (int) get_post_meta($file_id, 'shared_folder_id', true);
+            if ($folder_id <= 0) {
+                continue;
+            }
+
+            $candidate_folders = array($folder_id);
+            if ($inheritance_enabled) {
+                $candidate_folders = array_merge($candidate_folders, array_map('intval', get_post_ancestors($folder_id)));
+            }
+
+            $candidate_users = array();
+            foreach ($candidate_folders as $candidate_folder_id) {
+                if (isset($users_by_folder[$candidate_folder_id])) {
+                    foreach (array_keys($users_by_folder[$candidate_folder_id]) as $candidate_user_id) {
+                        $candidate_users[(int) $candidate_user_id] = true;
+                    }
+                }
+            }
+
+            foreach (array_keys($candidate_users) as $user_id) {
+                $user_id = (int) $user_id;
+                if ($user_id <= 0) {
+                    continue;
+                }
+
+                if (isset($explicit_file_users[$file_id][$user_id])) {
+                    continue;
+                }
+
+                if (! $this->permission_manager->user_can_access_file($user_id, $file_id, 'can_read')) {
+                    continue;
+                }
+
+                $source_folder_id = 0;
+                $source_row = null;
+                foreach ($candidate_folders as $candidate_folder_id) {
+                    if (isset($folder_permission_index[$candidate_folder_id][$user_id])) {
+                        $source_folder_id = (int) $candidate_folder_id;
+                        $source_row = $folder_permission_index[$candidate_folder_id][$user_id];
+                        break;
+                    }
+                }
+
+                $user = get_userdata($user_id);
+                $user_label = $user ? (string) $user->display_name : __('Usuario eliminado', 'shared-docs-manager');
+                $email = $user && ! empty($user->user_email) ? (string) $user->user_email : '';
+                $user_full = $email !== '' ? $user_label . ' (' . $email . ')' : $user_label;
+                $source_folder_title = $source_folder_id > 0 ? get_the_title($source_folder_id) : '';
+                if (! $source_folder_title) {
+                    $source_folder_title = __('Carpeta', 'shared-docs-manager');
+                }
+                $user_full .= ' · ' . sprintf(__('Heredado de: %s', 'shared-docs-manager'), $source_folder_title);
+
+                if (! isset($user_permissions_cache[$user_id])) {
+                    $user_permissions_cache[$user_id] = function_exists('shared_get_user_permissions_html')
+                        ? (string) shared_get_user_permissions_html($user_id)
+                        : '';
+                }
+
+                $can_download = $this->permission_manager->user_can_access_file($user_id, $file_id, 'can_download');
+                $can_edit_excel = $this->permission_manager->user_can_access_file($user_id, $file_id, 'can_edit_excel');
+
+                if (! isset($by_file[$file_id])) {
+                    $by_file[$file_id] = array();
+                }
+
+                $by_file[$file_id][] = array(
+                    'id'             => 0,
+                    'user_id'        => $user_id,
+                    'user'           => $user_full,
+                    'can_read'       => true,
+                    'can_download'   => (bool) $can_download,
+                    'can_edit_excel' => (bool) $can_edit_excel,
+                    'read_state'       => 1,
+                    'download_state'   => $can_download ? 1 : -1,
+                    'edit_excel_state' => $can_edit_excel ? 1 : -1,
+                    'read_state_label'       => __('Heredado (Permitir)', 'shared-docs-manager'),
+                    'download_state_label'   => $can_download ? __('Heredado (Permitir)', 'shared-docs-manager') : __('Heredado (Denegar)', 'shared-docs-manager'),
+                    'edit_excel_state_label' => $can_edit_excel ? __('Heredado (Permitir)', 'shared-docs-manager') : __('Heredado (Denegar)', 'shared-docs-manager'),
+                    'expires_at'     => $source_row ? $source_row['expires_at'] : __('Sin límite', 'shared-docs-manager'),
+                    'edit_url'       => $source_row ? $source_row['edit_url'] : '',
+                    'revoke_url'     => $source_row ? $source_row['revoke_url'] : '',
+                    'inherited'      => true,
+                );
+            }
         }
 
         return array(
@@ -3715,6 +3887,17 @@ class Admin_Controller
         }
 
         return $expires_timestamp < current_time('timestamp');
+    }
+
+    /**
+     * Indica si la herencia de permisos de carpeta está habilitada.
+     *
+     * @return bool
+     */
+    private function is_permission_inheritance_enabled()
+    {
+        $enabled = get_option('shared_docs_enable_inheritance', '0');
+        return (bool) apply_filters('shared_docs_enable_inheritance', $enabled === '1');
     }
 
     /**
