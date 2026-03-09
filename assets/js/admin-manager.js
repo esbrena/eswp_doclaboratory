@@ -109,6 +109,15 @@
     return response.blob();
   };
 
+  const permissionStateLabel = (row, key, fallbackBool) => {
+    const labelKey = `${key}_label`;
+    if (row && row[labelKey]) {
+      return String(row[labelKey]);
+    }
+
+    return fallbackBool ? "Permitir" : "Denegar";
+  };
+
   const setButtonLoading = (button, loading, loadingText) => {
     if (!button) {
       return;
@@ -480,15 +489,15 @@
         tr.appendChild(userCell);
 
         const readCell = document.createElement("td");
-        readCell.textContent = row.can_read ? "✔" : "—";
+        readCell.textContent = permissionStateLabel(row, "read_state", !!row.can_read);
         tr.appendChild(readCell);
 
         const downloadCell = document.createElement("td");
-        downloadCell.textContent = row.can_download ? "✔" : "—";
+        downloadCell.textContent = permissionStateLabel(row, "download_state", !!row.can_download);
         tr.appendChild(downloadCell);
 
         const editExcelCell = document.createElement("td");
-        editExcelCell.textContent = row.can_edit_excel ? "✔" : "—";
+        editExcelCell.textContent = permissionStateLabel(row, "edit_excel_state", !!row.can_edit_excel);
         tr.appendChild(editExcelCell);
 
         const expiresCell = document.createElement("td");
@@ -649,13 +658,13 @@
         userCell.textContent = row.user || "";
         tr.appendChild(userCell);
         const readCell = document.createElement("td");
-        readCell.textContent = row.can_read ? "✔" : "—";
+        readCell.textContent = permissionStateLabel(row, "read_state", !!row.can_read);
         tr.appendChild(readCell);
         const downloadCell = document.createElement("td");
-        downloadCell.textContent = row.can_download ? "✔" : "—";
+        downloadCell.textContent = permissionStateLabel(row, "download_state", !!row.can_download);
         tr.appendChild(downloadCell);
         const editCell = document.createElement("td");
-        editCell.textContent = row.can_edit_excel ? "✔" : "—";
+        editCell.textContent = permissionStateLabel(row, "edit_excel_state", !!row.can_edit_excel);
         tr.appendChild(editCell);
         const expiresCell = document.createElement("td");
         expiresCell.textContent = row.expires_at || "";

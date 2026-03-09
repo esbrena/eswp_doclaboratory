@@ -333,6 +333,23 @@ class Admin_Controller
             )
         );
 
+        $folder_form_states = $this->get_permission_states_from_permission(
+            $editing_permission,
+            array(
+                'read_state'       => 1,
+                'download_state'   => 1,
+                'edit_excel_state' => -1,
+            )
+        );
+        $file_form_states = $this->get_permission_states_from_permission(
+            $editing_file_permission,
+            array(
+                'read_state'       => 1,
+                'download_state'   => 1,
+                'edit_excel_state' => -1,
+            )
+        );
+
         $permissions_payload = $this->build_permissions_payload($folders, $files);
         $excel_history_payload = $this->build_excel_history_payload($files);
         $inline_data = array(
@@ -401,12 +418,12 @@ class Admin_Controller
                                 ?>
                             </select>
 
-                            <fieldset class="shared-docs-checkboxes">
-                                <legend><?php esc_html_e('Permisos', 'shared-docs-manager'); ?></legend>
-                                <label><input type="checkbox" name="can_read" value="1" <?php checked($editing_permission ? (int) $editing_permission->can_read : 1, 1); ?> /> <?php esc_html_e('Lectura', 'shared-docs-manager'); ?></label>
-                                <label><input type="checkbox" name="can_download" value="1" <?php checked($editing_permission ? (int) $editing_permission->can_download : 1, 1); ?> /> <?php esc_html_e('Descarga', 'shared-docs-manager'); ?></label>
-                                <label><input type="checkbox" name="can_edit_excel" value="1" <?php checked($editing_permission ? (int) $editing_permission->can_edit_excel : 0, 1); ?> /> <?php esc_html_e('Edición Excel', 'shared-docs-manager'); ?></label>
-                            </fieldset>
+                            <?php
+                            echo $this->render_permission_state_controls(
+                                $folder_form_states,
+                                'shared-folder-permission-state'
+                            ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+                            ?>
 
                             <label for="shared-permission-expires"><?php esc_html_e('Fecha límite (opcional)', 'shared-docs-manager'); ?></label>
                             <input id="shared-permission-expires" type="datetime-local" name="expires_at" value="<?php echo esc_attr($this->format_datetime_local($editing_permission ? $editing_permission->expires_at : '')); ?>" />
@@ -447,12 +464,12 @@ class Admin_Controller
                                 <?php echo $this->render_file_options($files, $editing_file_permission ? (int) $editing_file_permission->file_id : 0); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
                             </select>
 
-                            <fieldset class="shared-docs-checkboxes">
-                                <legend><?php esc_html_e('Permisos', 'shared-docs-manager'); ?></legend>
-                                <label><input type="checkbox" name="can_read" value="1" <?php checked($editing_file_permission ? (int) $editing_file_permission->can_read : 1, 1); ?> /> <?php esc_html_e('Lectura', 'shared-docs-manager'); ?></label>
-                                <label><input type="checkbox" name="can_download" value="1" <?php checked($editing_file_permission ? (int) $editing_file_permission->can_download : 1, 1); ?> /> <?php esc_html_e('Descarga', 'shared-docs-manager'); ?></label>
-                                <label><input type="checkbox" name="can_edit_excel" value="1" <?php checked($editing_file_permission ? (int) $editing_file_permission->can_edit_excel : 0, 1); ?> /> <?php esc_html_e('Edición Excel', 'shared-docs-manager'); ?></label>
-                            </fieldset>
+                            <?php
+                            echo $this->render_permission_state_controls(
+                                $file_form_states,
+                                'shared-file-permission-state'
+                            ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+                            ?>
 
                             <label for="shared-file-permission-expires"><?php esc_html_e('Fecha límite (opcional)', 'shared-docs-manager'); ?></label>
                             <input id="shared-file-permission-expires" type="datetime-local" name="expires_at" value="<?php echo esc_attr($this->format_datetime_local($editing_file_permission ? $editing_file_permission->expires_at : '')); ?>" />
@@ -1617,12 +1634,8 @@ class Admin_Controller
         $user_ids = isset($_POST['user_ids']) ? (array) wp_unslash($_POST['user_ids']) : array();
         $user_ids = array_values(array_unique(array_filter(array_map('intval', $user_ids))));
 
-        $can_read = ! empty($_POST['can_read']) ? 1 : 0;
-        $can_download = ! empty($_POST['can_download']) ? 1 : 0;
-        $can_edit_excel = ! empty($_POST['can_edit_excel']) ? 1 : 0;
-        if ($can_download || $can_edit_excel) {
-            $can_read = 1;
-        }
+        $states = $this->extract_permission_states_from_request();
+        $legacy_flags = $this->permission_states_to_legacy_flags($states);
         $expires_at = $this->normalize_datetime_local(
             isset($_POST['expires_at']) ? sanitize_text_field(wp_unslash($_POST['expires_at'])) : ''
         );
@@ -1638,9 +1651,12 @@ class Admin_Controller
                     array(
                         'user_id'        => $user_id,
                         'folder_id'      => $item_id,
-                        'can_read'       => $can_read,
-                        'can_download'   => $can_download,
-                        'can_edit_excel' => $can_edit_excel,
+                        'can_read'       => $legacy_flags['can_read'],
+                        'can_download'   => $legacy_flags['can_download'],
+                        'can_edit_excel' => $legacy_flags['can_edit_excel'],
+                        'read_state'       => $states['read_state'],
+                        'download_state'   => $states['download_state'],
+                        'edit_excel_state' => $states['edit_excel_state'],
                         'expires_at'     => $expires_at,
                     )
                 );
@@ -1649,9 +1665,12 @@ class Admin_Controller
                     array(
                         'user_id'        => $user_id,
                         'file_id'        => $item_id,
-                        'can_read'       => $can_read,
-                        'can_download'   => $can_download,
-                        'can_edit_excel' => $can_edit_excel,
+                        'can_read'       => $legacy_flags['can_read'],
+                        'can_download'   => $legacy_flags['can_download'],
+                        'can_edit_excel' => $legacy_flags['can_edit_excel'],
+                        'read_state'       => $states['read_state'],
+                        'download_state'   => $states['download_state'],
+                        'edit_excel_state' => $states['edit_excel_state'],
                         'expires_at'     => $expires_at,
                     )
                 );
@@ -1771,13 +1790,8 @@ class Admin_Controller
         $folder_id = isset($_POST['folder_id']) ? (int) $_POST['folder_id'] : 0;
         $user_ids = $this->extract_user_ids_from_request();
 
-        $can_read = ! empty($_POST['can_read']) ? 1 : 0;
-        $can_download = ! empty($_POST['can_download']) ? 1 : 0;
-        $can_edit_excel = ! empty($_POST['can_edit_excel']) ? 1 : 0;
-
-        if ($can_download || $can_edit_excel) {
-            $can_read = 1;
-        }
+        $states = $this->extract_permission_states_from_request();
+        $legacy_flags = $this->permission_states_to_legacy_flags($states);
 
         $expires_at = $this->normalize_datetime_local(
             isset($_POST['expires_at']) ? sanitize_text_field(wp_unslash($_POST['expires_at'])) : ''
@@ -1806,9 +1820,12 @@ class Admin_Controller
                 array(
                     'user_id'        => (int) $user_id,
                     'folder_id'      => $folder_id,
-                    'can_read'       => $can_read,
-                    'can_download'   => $can_download,
-                    'can_edit_excel' => $can_edit_excel,
+                    'can_read'       => $legacy_flags['can_read'],
+                    'can_download'   => $legacy_flags['can_download'],
+                    'can_edit_excel' => $legacy_flags['can_edit_excel'],
+                    'read_state'       => $states['read_state'],
+                    'download_state'   => $states['download_state'],
+                    'edit_excel_state' => $states['edit_excel_state'],
                     'expires_at'     => $expires_at,
                 )
             );
@@ -1835,13 +1852,8 @@ class Admin_Controller
         $file_id = isset($_POST['file_id']) ? (int) $_POST['file_id'] : 0;
         $user_ids = $this->extract_user_ids_from_request();
 
-        $can_read = ! empty($_POST['can_read']) ? 1 : 0;
-        $can_download = ! empty($_POST['can_download']) ? 1 : 0;
-        $can_edit_excel = ! empty($_POST['can_edit_excel']) ? 1 : 0;
-
-        if ($can_download || $can_edit_excel) {
-            $can_read = 1;
-        }
+        $states = $this->extract_permission_states_from_request();
+        $legacy_flags = $this->permission_states_to_legacy_flags($states);
 
         $expires_at = $this->normalize_datetime_local(
             isset($_POST['expires_at']) ? sanitize_text_field(wp_unslash($_POST['expires_at'])) : ''
@@ -1869,9 +1881,12 @@ class Admin_Controller
                 array(
                     'user_id'        => (int) $user_id,
                     'file_id'        => $file_id,
-                    'can_read'       => $can_read,
-                    'can_download'   => $can_download,
-                    'can_edit_excel' => $can_edit_excel,
+                    'can_read'       => $legacy_flags['can_read'],
+                    'can_download'   => $legacy_flags['can_download'],
+                    'can_edit_excel' => $legacy_flags['can_edit_excel'],
+                    'read_state'       => $states['read_state'],
+                    'download_state'   => $states['download_state'],
+                    'edit_excel_state' => $states['edit_excel_state'],
                     'expires_at'     => $expires_at,
                 )
             );
@@ -1906,12 +1921,8 @@ class Admin_Controller
             $this->redirect_with_notice('bulk_invalid');
         }
 
-        $can_read = ! empty($_POST['can_read']) ? 1 : 0;
-        $can_download = ! empty($_POST['can_download']) ? 1 : 0;
-        $can_edit_excel = ! empty($_POST['can_edit_excel']) ? 1 : 0;
-        if ($can_download || $can_edit_excel) {
-            $can_read = 1;
-        }
+        $states = $this->extract_permission_states_from_request();
+        $legacy_flags = $this->permission_states_to_legacy_flags($states);
 
         $expires_at = $this->normalize_datetime_local(
             isset($_POST['expires_at']) ? sanitize_text_field(wp_unslash($_POST['expires_at'])) : ''
@@ -1924,9 +1935,12 @@ class Admin_Controller
                     array(
                         'user_id'        => $user_id,
                         'folder_id'      => $folder_id,
-                        'can_read'       => $can_read,
-                        'can_download'   => $can_download,
-                        'can_edit_excel' => $can_edit_excel,
+                        'can_read'       => $legacy_flags['can_read'],
+                        'can_download'   => $legacy_flags['can_download'],
+                        'can_edit_excel' => $legacy_flags['can_edit_excel'],
+                        'read_state'       => $states['read_state'],
+                        'download_state'   => $states['download_state'],
+                        'edit_excel_state' => $states['edit_excel_state'],
                         'expires_at'     => $expires_at,
                     )
                 );
@@ -1940,9 +1954,12 @@ class Admin_Controller
                     array(
                         'user_id'        => $user_id,
                         'file_id'        => $file_id,
-                        'can_read'       => $can_read,
-                        'can_download'   => $can_download,
-                        'can_edit_excel' => $can_edit_excel,
+                        'can_read'       => $legacy_flags['can_read'],
+                        'can_download'   => $legacy_flags['can_download'],
+                        'can_edit_excel' => $legacy_flags['can_edit_excel'],
+                        'read_state'       => $states['read_state'],
+                        'download_state'   => $states['download_state'],
+                        'edit_excel_state' => $states['edit_excel_state'],
                         'expires_at'     => $expires_at,
                     )
                 );
@@ -2755,12 +2772,16 @@ class Admin_Controller
                 ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
                 ?>
 
-                <fieldset class="shared-docs-checkboxes">
-                    <legend><?php esc_html_e('Permisos', 'shared-docs-manager'); ?></legend>
-                    <label><input type="checkbox" name="can_read" value="1" checked /> <?php esc_html_e('Lectura', 'shared-docs-manager'); ?></label>
-                    <label><input type="checkbox" name="can_download" value="1" checked /> <?php esc_html_e('Descarga', 'shared-docs-manager'); ?></label>
-                    <label><input type="checkbox" name="can_edit_excel" value="1" /> <?php esc_html_e('Edición Excel', 'shared-docs-manager'); ?></label>
-                </fieldset>
+                <?php
+                echo $this->render_permission_state_controls(
+                    array(
+                        'read_state'       => 1,
+                        'download_state'   => 1,
+                        'edit_excel_state' => -1,
+                    ),
+                    $id_prefix . '-state'
+                ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+                ?>
 
                 <label for="shared-modal-access-expires-<?php echo esc_attr($id_prefix); ?>"><?php esc_html_e('Fecha límite (opcional)', 'shared-docs-manager'); ?></label>
                 <input id="shared-modal-access-expires-<?php echo esc_attr($id_prefix); ?>" type="datetime-local" name="expires_at" value="" />
@@ -3037,6 +3058,225 @@ class Admin_Controller
     }
 
     /**
+     * Extrae estados de permiso tri-state desde request.
+     *
+     * Compatibilidad:
+     * - Si llegan read_state/download_state/edit_excel_state, usa esos valores.
+     * - Si no llegan, deriva desde checkboxes legacy can_*.
+     *
+     * @return array{read_state:int,download_state:int,edit_excel_state:int}
+     */
+    private function extract_permission_states_from_request()
+    {
+        $has_state_fields = isset($_POST['read_state']) || isset($_POST['download_state']) || isset($_POST['edit_excel_state']);
+
+        if ($has_state_fields) {
+            $read_state = $this->normalize_permission_state(isset($_POST['read_state']) ? wp_unslash($_POST['read_state']) : 0);
+            $download_state = $this->normalize_permission_state(isset($_POST['download_state']) ? wp_unslash($_POST['download_state']) : 0);
+            $edit_excel_state = $this->normalize_permission_state(isset($_POST['edit_excel_state']) ? wp_unslash($_POST['edit_excel_state']) : 0);
+        } else {
+            $can_read = ! empty($_POST['can_read']) ? 1 : 0;
+            $can_download = ! empty($_POST['can_download']) ? 1 : 0;
+            $can_edit_excel = ! empty($_POST['can_edit_excel']) ? 1 : 0;
+            if ($can_download || $can_edit_excel) {
+                $can_read = 1;
+            }
+
+            $read_state = $can_read ? 1 : -1;
+            $download_state = $can_download ? 1 : -1;
+            $edit_excel_state = $can_edit_excel ? 1 : -1;
+        }
+
+        // Sin lectura explícita no permitimos permitir capacidades derivadas.
+        if ($read_state === -1) {
+            if ($download_state === 1) {
+                $download_state = -1;
+            }
+            if ($edit_excel_state === 1) {
+                $edit_excel_state = -1;
+            }
+        }
+
+        return array(
+            'read_state'       => $read_state,
+            'download_state'   => $download_state,
+            'edit_excel_state' => $edit_excel_state,
+        );
+    }
+
+    /**
+     * Convierte estados tri-state en flags legacy can_*.
+     *
+     * @param array $states Estados tri-state.
+     *
+     * @return array
+     */
+    private function permission_states_to_legacy_flags($states)
+    {
+        $read_state = isset($states['read_state']) ? $this->normalize_permission_state($states['read_state']) : -1;
+        $download_state = isset($states['download_state']) ? $this->normalize_permission_state($states['download_state']) : -1;
+        $edit_excel_state = isset($states['edit_excel_state']) ? $this->normalize_permission_state($states['edit_excel_state']) : -1;
+
+        $can_read = $read_state === 1 ? 1 : 0;
+        $can_download = ($can_read === 1 && $download_state === 1) ? 1 : 0;
+        $can_edit_excel = ($can_read === 1 && $edit_excel_state === 1) ? 1 : 0;
+
+        return array(
+            'can_read'       => $can_read,
+            'can_download'   => $can_download,
+            'can_edit_excel' => $can_edit_excel,
+        );
+    }
+
+    /**
+     * Normaliza valor tri-state a -1/0/1.
+     *
+     * @param mixed $value Valor raw.
+     *
+     * @return int
+     */
+    private function normalize_permission_state($value)
+    {
+        $value = (int) $value;
+        if ($value > 0) {
+            return 1;
+        }
+        if ($value < 0) {
+            return -1;
+        }
+
+        return 0;
+    }
+
+    /**
+     * Obtiene estados tri-state para prefill de formularios.
+     *
+     * @param object|null $permission Registro permiso.
+     * @param array       $defaults   Defaults tri-state.
+     *
+     * @return array{read_state:int,download_state:int,edit_excel_state:int}
+     */
+    private function get_permission_states_from_permission($permission, $defaults = array())
+    {
+        $defaults = wp_parse_args(
+            (array) $defaults,
+            array(
+                'read_state'       => 1,
+                'download_state'   => 1,
+                'edit_excel_state' => -1,
+            )
+        );
+
+        if (! is_object($permission)) {
+            return array(
+                'read_state'       => $this->normalize_permission_state($defaults['read_state']),
+                'download_state'   => $this->normalize_permission_state($defaults['download_state']),
+                'edit_excel_state' => $this->normalize_permission_state($defaults['edit_excel_state']),
+            );
+        }
+
+        $read_state = isset($permission->read_state)
+            ? $this->normalize_permission_state($permission->read_state)
+            : (! empty($permission->can_read) ? 1 : -1);
+
+        $download_state = isset($permission->download_state)
+            ? $this->normalize_permission_state($permission->download_state)
+            : (! empty($permission->can_download) ? 1 : -1);
+
+        $edit_excel_state = isset($permission->edit_excel_state)
+            ? $this->normalize_permission_state($permission->edit_excel_state)
+            : (! empty($permission->can_edit_excel) ? 1 : -1);
+
+        return array(
+            'read_state'       => $read_state,
+            'download_state'   => $download_state,
+            'edit_excel_state' => $edit_excel_state,
+        );
+    }
+
+    /**
+     * Etiqueta visible de estado tri-state.
+     *
+     * @param mixed $state Estado.
+     *
+     * @return string
+     */
+    private function permission_state_label($state)
+    {
+        $state = $this->normalize_permission_state($state);
+        if ($state === 1) {
+            return __('Permitir', 'shared-docs-manager');
+        }
+        if ($state === -1) {
+            return __('Denegar', 'shared-docs-manager');
+        }
+
+        return __('Heredar', 'shared-docs-manager');
+    }
+
+    /**
+     * Renderiza controles tri-state de permisos.
+     *
+     * @param array  $states    Estados actuales.
+     * @param string $id_prefix Prefijo IDs HTML.
+     *
+     * @return string
+     */
+    private function render_permission_state_controls($states, $id_prefix = 'shared-permission')
+    {
+        $states = wp_parse_args(
+            (array) $states,
+            array(
+                'read_state'       => 1,
+                'download_state'   => 1,
+                'edit_excel_state' => -1,
+            )
+        );
+
+        $options = array(
+            1  => __('Permitir', 'shared-docs-manager'),
+            -1 => __('Denegar', 'shared-docs-manager'),
+            0  => __('Heredar', 'shared-docs-manager'),
+        );
+
+        ob_start();
+        ?>
+        <fieldset class="shared-docs-checkboxes">
+            <legend><?php esc_html_e('Permisos (triestado)', 'shared-docs-manager'); ?></legend>
+
+            <label for="<?php echo esc_attr($id_prefix . '-read-state'); ?>"><?php esc_html_e('Lectura', 'shared-docs-manager'); ?></label>
+            <select id="<?php echo esc_attr($id_prefix . '-read-state'); ?>" name="read_state">
+                <?php foreach ($options as $value => $label) : ?>
+                    <option value="<?php echo esc_attr((string) $value); ?>" <?php selected($this->normalize_permission_state($states['read_state']), (int) $value); ?>>
+                        <?php echo esc_html($label); ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+
+            <label for="<?php echo esc_attr($id_prefix . '-download-state'); ?>"><?php esc_html_e('Descarga', 'shared-docs-manager'); ?></label>
+            <select id="<?php echo esc_attr($id_prefix . '-download-state'); ?>" name="download_state">
+                <?php foreach ($options as $value => $label) : ?>
+                    <option value="<?php echo esc_attr((string) $value); ?>" <?php selected($this->normalize_permission_state($states['download_state']), (int) $value); ?>>
+                        <?php echo esc_html($label); ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+
+            <label for="<?php echo esc_attr($id_prefix . '-edit-excel-state'); ?>"><?php esc_html_e('Edición Excel', 'shared-docs-manager'); ?></label>
+            <select id="<?php echo esc_attr($id_prefix . '-edit-excel-state'); ?>" name="edit_excel_state">
+                <?php foreach ($options as $value => $label) : ?>
+                    <option value="<?php echo esc_attr((string) $value); ?>" <?php selected($this->normalize_permission_state($states['edit_excel_state']), (int) $value); ?>>
+                        <?php echo esc_html($label); ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+        </fieldset>
+        <?php
+
+        return (string) ob_get_clean();
+    }
+
+    /**
      * Convierte un CSV a array de enteros únicos.
      *
      * @param mixed $raw Valor raw.
@@ -3292,6 +3532,12 @@ class Admin_Controller
                 'can_read'       => ! empty($permission->can_read),
                 'can_download'   => ! empty($permission->can_download),
                 'can_edit_excel' => ! empty($permission->can_edit_excel),
+                'read_state'       => $this->normalize_permission_state(isset($permission->read_state) ? $permission->read_state : (! empty($permission->can_read) ? 1 : -1)),
+                'download_state'   => $this->normalize_permission_state(isset($permission->download_state) ? $permission->download_state : (! empty($permission->can_download) ? 1 : -1)),
+                'edit_excel_state' => $this->normalize_permission_state(isset($permission->edit_excel_state) ? $permission->edit_excel_state : (! empty($permission->can_edit_excel) ? 1 : -1)),
+                'read_state_label'       => $this->permission_state_label(isset($permission->read_state) ? $permission->read_state : (! empty($permission->can_read) ? 1 : -1)),
+                'download_state_label'   => $this->permission_state_label(isset($permission->download_state) ? $permission->download_state : (! empty($permission->can_download) ? 1 : -1)),
+                'edit_excel_state_label' => $this->permission_state_label(isset($permission->edit_excel_state) ? $permission->edit_excel_state : (! empty($permission->can_edit_excel) ? 1 : -1)),
                 'expires_at'     => $expires_label,
                 'edit_url'       => $edit_url,
                 'revoke_url'     => $revoke_url,
@@ -3360,6 +3606,12 @@ class Admin_Controller
                 'can_read'       => ! empty($permission->can_read),
                 'can_download'   => ! empty($permission->can_download),
                 'can_edit_excel' => ! empty($permission->can_edit_excel),
+                'read_state'       => $this->normalize_permission_state(isset($permission->read_state) ? $permission->read_state : (! empty($permission->can_read) ? 1 : -1)),
+                'download_state'   => $this->normalize_permission_state(isset($permission->download_state) ? $permission->download_state : (! empty($permission->can_download) ? 1 : -1)),
+                'edit_excel_state' => $this->normalize_permission_state(isset($permission->edit_excel_state) ? $permission->edit_excel_state : (! empty($permission->can_edit_excel) ? 1 : -1)),
+                'read_state_label'       => $this->permission_state_label(isset($permission->read_state) ? $permission->read_state : (! empty($permission->can_read) ? 1 : -1)),
+                'download_state_label'   => $this->permission_state_label(isset($permission->download_state) ? $permission->download_state : (! empty($permission->can_download) ? 1 : -1)),
+                'edit_excel_state_label' => $this->permission_state_label(isset($permission->edit_excel_state) ? $permission->edit_excel_state : (! empty($permission->can_edit_excel) ? 1 : -1)),
                 'expires_at'     => $expires_label,
                 'edit_url'       => $edit_url,
                 'revoke_url'     => $revoke_url,
