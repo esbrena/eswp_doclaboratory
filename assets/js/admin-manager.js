@@ -237,6 +237,69 @@
     });
   };
 
+  const setupAccessRowsFilter = (filterSelect, tableBody, emptyRow) => {
+    if (!tableBody) {
+      return {
+        apply: () => {},
+        reset: () => {},
+      };
+    }
+
+    const defaultEmptyText = emptyRow ? emptyRow.textContent || "" : "";
+
+    const apply = () => {
+      const mode = filterSelect ? filterSelect.value || "all" : "all";
+      const mainRows = Array.from(tableBody.querySelectorAll("tr[data-access-row-main='1']"));
+      let visibleCount = 0;
+
+      mainRows.forEach((row) => {
+        const kind = row.getAttribute("data-access-kind") || "explicit";
+        const visible = mode === "all" || kind === mode;
+        row.hidden = !visible;
+        if (visible) {
+          visibleCount += 1;
+        }
+
+        const rowKey = row.getAttribute("data-access-row-key") || "";
+        if (rowKey) {
+          const detailRows = Array.from(
+            tableBody.querySelectorAll(`tr[data-access-parent-key="${rowKey}"]`)
+          );
+          detailRows.forEach((detailRow) => {
+            if (!visible) {
+              detailRow.hidden = true;
+            }
+          });
+        }
+      });
+
+      if (emptyRow) {
+        emptyRow.hidden = visibleCount > 0;
+        if (visibleCount === 0) {
+          emptyRow.textContent =
+            mode === "all"
+              ? defaultEmptyText
+              : "No hay permisos para el filtro seleccionado.";
+        } else {
+          emptyRow.textContent = defaultEmptyText;
+        }
+      }
+    };
+
+    const reset = () => {
+      if (filterSelect) {
+        filterSelect.value = "all";
+      }
+      apply();
+    };
+
+    if (filterSelect) {
+      filterSelect.addEventListener("change", apply);
+    }
+
+    return { apply, reset };
+  };
+
   const setupUserSelectors = () => {
     const selectors = Array.from(document.querySelectorAll("[data-user-selector]"));
     selectors.forEach((container) => {
@@ -453,8 +516,10 @@
     const itemIdInput = modal.querySelector("[data-access-item-id]");
     const tableBody = modal.querySelector("[data-access-current-body]");
     const emptyRow = modal.querySelector("[data-access-current-empty]");
+    const filterSelect = modal.querySelector("[data-access-filter]");
     const closeButtons = modal.querySelectorAll('[data-action="close-access-modal"]');
     const openButtons = Array.from(document.querySelectorAll(".shared-docs-open-access-modal"));
+    const rowsFilter = setupAccessRowsFilter(filterSelect, tableBody, emptyRow);
 
     const clearRows = () => {
       if (!tableBody) {
@@ -480,9 +545,14 @@
         emptyRow.hidden = true;
       }
 
-      rows.forEach((row) => {
+      rows.forEach((row, index) => {
+        const rowKind = row && row.inherited ? "inherited" : "explicit";
+        const rowKey = `${String(row.user_id || "u")}-${String(row.id || "0")}-${String(index)}`;
         const tr = document.createElement("tr");
         tr.setAttribute("data-access-row", "1");
+        tr.setAttribute("data-access-row-main", "1");
+        tr.setAttribute("data-access-kind", rowKind);
+        tr.setAttribute("data-access-row-key", rowKey);
 
         const userCell = document.createElement("td");
         userCell.textContent = row.user || "";
@@ -546,6 +616,8 @@
 
           detailRow = document.createElement("tr");
           detailRow.setAttribute("data-access-row", "1");
+          detailRow.setAttribute("data-access-kind", rowKind);
+          detailRow.setAttribute("data-access-parent-key", rowKey);
           detailRow.hidden = true;
           const detailCell = document.createElement("td");
           detailCell.colSpan = 6;
@@ -565,6 +637,7 @@
           tableBody.appendChild(detailRow);
         }
       });
+      rowsFilter.apply();
     };
 
     const closeModal = () => {
@@ -583,6 +656,7 @@
         input.dispatchEvent(new Event("input", { bubbles: true }));
       });
       clearRows();
+      rowsFilter.reset();
     };
 
     const openFromItem = (item) => {
@@ -616,6 +690,7 @@
           ? permissionsByFile[item.id] || []
           : [];
       renderRows(rows);
+      rowsFilter.apply();
       modal.hidden = false;
     };
 
@@ -644,8 +719,10 @@
     const itemLabel = modal.querySelector("[data-access-item-label]");
     const tableBody = modal.querySelector("[data-access-current-body]");
     const emptyRow = modal.querySelector("[data-access-current-empty]");
+    const filterSelect = modal.querySelector("[data-access-filter]");
     const closeButtons = modal.querySelectorAll('[data-action="close-access-view-modal"]');
     const openButtons = Array.from(document.querySelectorAll(".shared-docs-open-permissions-view-modal"));
+    const rowsFilter = setupAccessRowsFilter(filterSelect, tableBody, emptyRow);
 
     const clearRows = () => {
       if (!tableBody) return;
@@ -659,9 +736,14 @@
       if (!rows.length) return;
       if (emptyRow) emptyRow.hidden = true;
 
-      rows.forEach((row) => {
+      rows.forEach((row, index) => {
+        const rowKind = row && row.inherited ? "inherited" : "explicit";
+        const rowKey = `${String(row.user_id || "u")}-${String(row.id || "0")}-${String(index)}`;
         const tr = document.createElement("tr");
         tr.setAttribute("data-access-row", "1");
+        tr.setAttribute("data-access-row-main", "1");
+        tr.setAttribute("data-access-kind", rowKind);
+        tr.setAttribute("data-access-row-key", rowKey);
         const userCell = document.createElement("td");
         userCell.textContent = row.user || "";
         tr.appendChild(userCell);
@@ -715,6 +797,8 @@
 
           detailsRow = document.createElement("tr");
           detailsRow.setAttribute("data-access-row", "1");
+          detailsRow.setAttribute("data-access-kind", rowKind);
+          detailsRow.setAttribute("data-access-parent-key", rowKey);
           detailsRow.hidden = true;
           const detailsCell = document.createElement("td");
           detailsCell.colSpan = 6;
@@ -732,12 +816,14 @@
         tableBody.appendChild(tr);
         if (detailsRow) tableBody.appendChild(detailsRow);
       });
+      rowsFilter.apply();
     };
 
     const closeModal = () => {
       modal.hidden = true;
       if (itemLabel) itemLabel.textContent = "";
       clearRows();
+      rowsFilter.reset();
     };
 
     const open = (item) => {
@@ -752,6 +838,7 @@
           ? permissionsByFile[item.id] || []
           : [];
       renderRows(rows);
+      rowsFilter.apply();
       modal.hidden = false;
     };
 

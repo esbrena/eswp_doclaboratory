@@ -2727,7 +2727,14 @@ class Admin_Controller
         ob_start();
         ?>
         <div class="shared-docs-access-current">
-            <h4><?php esc_html_e('Usuarios y permisos actuales', 'shared-docs-manager'); ?></h4>
+            <div class="shared-docs-access-current__toolbar">
+                <h4><?php esc_html_e('Usuarios y permisos actuales', 'shared-docs-manager'); ?></h4>
+                <select data-access-filter>
+                    <option value="all"><?php esc_html_e('Todos', 'shared-docs-manager'); ?></option>
+                    <option value="explicit"><?php esc_html_e('Explícitos', 'shared-docs-manager'); ?></option>
+                    <option value="inherited"><?php esc_html_e('Heredados', 'shared-docs-manager'); ?></option>
+                </select>
+            </div>
             <table class="widefat striped">
                 <thead>
                 <tr>

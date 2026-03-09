@@ -323,6 +323,22 @@ button.is-loading,
   overflow: auto;
 }
 
+.shared-docs-access-current__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.shared-docs-access-current__toolbar h4 {
+  margin: 0;
+}
+
+.shared-docs-access-current__toolbar select {
+  min-width: 180px;
+}
+
 .shared-docs-access-add {
   margin-top: 12px;
 }
