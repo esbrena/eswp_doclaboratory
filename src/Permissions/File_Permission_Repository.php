@@ -427,6 +427,28 @@ class File_Permission_Repository
     }
 
     /**
+     * Elimina un permiso por usuario/archivo.
+     *
+     * @param int $user_id Usuario.
+     * @param int $file_id Archivo.
+     *
+     * @return bool
+     */
+    public function delete_permission_by_user_file($user_id, $file_id)
+    {
+        global $wpdb;
+
+        return (bool) $wpdb->delete(
+            $this->table_name,
+            array(
+                'user_id' => (int) $user_id,
+                'file_id' => (int) $file_id,
+            ),
+            array('%d', '%d')
+        );
+    }
+
+    /**
      * Elimina permisos vinculados a varios archivos.
      *
      * @param array $file_ids IDs de archivo.

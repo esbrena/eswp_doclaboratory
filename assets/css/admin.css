@@ -339,6 +339,10 @@ button.is-loading,
   min-width: 180px;
 }
 
+.shared-docs-access-current td [data-access-level-select] {
+  min-width: 230px;
+}
+
 .shared-docs-access-add {
   margin-top: 12px;
 }
@@ -351,6 +355,19 @@ button.is-loading,
 .shared-docs-resource-table td:first-child {
   width: 60px;
   text-align: center;
+}
+
+.shared-docs-resource-quick-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+.shared-docs-resource-quick-filters .button.is-active {
+  background: #2271b1;
+  border-color: #2271b1;
+  color: #fff;
 }
 
 .shared-docs-user-selector {

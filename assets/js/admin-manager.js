@@ -118,6 +118,39 @@
     return fallbackBool ? "Permitir" : "Denegar";
   };
 
+  const resolveAccessLevel = (row) => {
+    if (!row) {
+      return "reader";
+    }
+    if (row.can_edit_excel || Number(row.edit_excel_state || 0) === 1) {
+      return "editor";
+    }
+    if (row.can_read || row.can_download || Number(row.read_state || 0) === 1) {
+      return "reader";
+    }
+    return "remove";
+  };
+
+  const buildAccessLevelSelect = (selectedValue) => {
+    const select = document.createElement("select");
+    select.setAttribute("data-access-level-select", "1");
+    const options = [
+      { value: "reader", label: "Lector (lectura y descarga)" },
+      { value: "editor", label: "Editor (lectura, descarga y edición Excel)" },
+      { value: "remove", label: "Quitar acceso" },
+    ];
+    options.forEach((option) => {
+      const optionEl = document.createElement("option");
+      optionEl.value = option.value;
+      optionEl.textContent = option.label;
+      if (selectedValue === option.value) {
+        optionEl.selected = true;
+      }
+      select.appendChild(optionEl);
+    });
+    return select;
+  };
+
   const setButtonLoading = (button, loading, loadingText) => {
     if (!button) {
       return;
@@ -250,6 +283,18 @@
     const apply = () => {
       const mode = filterSelect ? filterSelect.value || "all" : "all";
       const mainRows = Array.from(tableBody.querySelectorAll("tr[data-access-row-main='1']"));
+      const explicitCount = mainRows.filter(
+        (row) => (row.getAttribute("data-access-kind") || "explicit") === "explicit"
+      ).length;
+      const inheritedCount = mainRows.length - explicitCount;
+      if (filterSelect) {
+        const allOption = filterSelect.querySelector('option[value="all"]');
+        const explicitOption = filterSelect.querySelector('option[value="explicit"]');
+        const inheritedOption = filterSelect.querySelector('option[value="inherited"]');
+        if (allOption) allOption.textContent = `Todos (${mainRows.length})`;
+        if (explicitOption) explicitOption.textContent = `Explícitos (${explicitCount})`;
+        if (inheritedOption) inheritedOption.textContent = `Heredados (${inheritedCount})`;
+      }
       let visibleCount = 0;
 
       mainRows.forEach((row) => {
@@ -514,6 +559,13 @@
     const itemLabel = modal.querySelector("[data-access-item-label]");
     const itemTypeInput = modal.querySelector("[data-access-item-type]");
     const itemIdInput = modal.querySelector("[data-access-item-id]");
+    const saveForm = modal.querySelector("[data-access-save-form]");
+    const saveItemTypeInput = modal.querySelector("[data-access-save-item-type]");
+    const saveItemIdInput = modal.querySelector("[data-access-save-item-id]");
+    const savePayloadInput = modal.querySelector("[data-access-save-payload]");
+    const saveButton = modal.querySelector('[data-action="save-access-changes"]');
+    const folderNote = modal.querySelector("[data-access-folder-note]");
+    const manageFolderNote = modal.querySelector("[data-access-folder-note-manage]");
     const tableBody = modal.querySelector("[data-access-current-body]");
     const emptyRow = modal.querySelector("[data-access-current-empty]");
     const filterSelect = modal.querySelector("[data-access-filter]");
@@ -553,6 +605,8 @@
         tr.setAttribute("data-access-row-main", "1");
         tr.setAttribute("data-access-kind", rowKind);
         tr.setAttribute("data-access-row-key", rowKey);
+        tr.setAttribute("data-access-user-id", String(row.user_id || ""));
+        tr.setAttribute("data-access-permission-id", String(row.id || ""));
 
         const userCell = document.createElement("td");
         userCell.textContent = row.user || "";
@@ -575,67 +629,11 @@
         tr.appendChild(expiresCell);
 
         const actionsCell = document.createElement("td");
-        const hasEditUrl = !!row.edit_url;
-        const hasRevokeUrl = !!row.revoke_url;
-        if (hasEditUrl) {
-          const editLink = document.createElement("a");
-          editLink.href = row.edit_url;
-          editLink.textContent = row.inherited ? "Editar origen" : "Editar";
-          actionsCell.appendChild(editLink);
-        } else {
-          actionsCell.appendChild(document.createTextNode("—"));
-        }
-
-        if (hasRevokeUrl) {
-          if (hasEditUrl) {
-            actionsCell.appendChild(document.createTextNode(" | "));
-          }
-          const revokeLink = document.createElement("a");
-          revokeLink.href = row.revoke_url;
-          revokeLink.textContent = row.inherited ? "Revocar origen" : "Revocar";
-          revokeLink.setAttribute("data-access-revoke", "1");
-          actionsCell.appendChild(revokeLink);
-
-          revokeLink.addEventListener("click", (event) => {
-            if (!window.confirm("¿Revocar este permiso?")) {
-              event.preventDefault();
-            }
-          });
-        }
-
-        const userPermissionsHtml = row.user_id ? userPermissionsHtmlByUser[row.user_id] : "";
-        let detailRow = null;
-        if (userPermissionsHtml) {
-          const sep2 = document.createTextNode(" | ");
-          actionsCell.appendChild(sep2);
-
-          const detailsLink = document.createElement("a");
-          detailsLink.href = "#";
-          detailsLink.textContent = "Ver permisos usuario";
-          actionsCell.appendChild(detailsLink);
-
-          detailRow = document.createElement("tr");
-          detailRow.setAttribute("data-access-row", "1");
-          detailRow.setAttribute("data-access-kind", rowKind);
-          detailRow.setAttribute("data-access-parent-key", rowKey);
-          detailRow.hidden = true;
-          const detailCell = document.createElement("td");
-          detailCell.colSpan = 6;
-          detailCell.className = "shared-docs-access-user-details";
-          detailCell.innerHTML = userPermissionsHtml;
-          detailRow.appendChild(detailCell);
-
-          detailsLink.addEventListener("click", (event) => {
-            event.preventDefault();
-            detailRow.hidden = !detailRow.hidden;
-          });
-        }
+        const levelSelect = buildAccessLevelSelect(resolveAccessLevel(row));
+        actionsCell.appendChild(levelSelect);
 
         tr.appendChild(actionsCell);
         tableBody.appendChild(tr);
-        if (detailRow) {
-          tableBody.appendChild(detailRow);
-        }
       });
       rowsFilter.apply();
     };
@@ -645,6 +643,21 @@
       if (itemLabel) itemLabel.textContent = "";
       if (itemTypeInput) itemTypeInput.value = "";
       if (itemIdInput) itemIdInput.value = "";
+      if (saveItemTypeInput) saveItemTypeInput.value = "";
+      if (saveItemIdInput) saveItemIdInput.value = "";
+      if (savePayloadInput) savePayloadInput.value = "";
+      if (saveForm) {
+        saveForm.dataset.submitting = "0";
+      }
+      if (saveButton) {
+        setButtonLoading(saveButton, false);
+      }
+      if (folderNote) {
+        folderNote.hidden = true;
+      }
+      if (manageFolderNote) {
+        manageFolderNote.hidden = true;
+      }
       Array.from(modal.querySelectorAll(".shared-docs-user-checkbox")).forEach((checkbox) => {
         checkbox.checked = false;
       });
@@ -677,10 +690,18 @@
 
       if (itemTypeInput) itemTypeInput.value = item.type;
       if (itemIdInput) itemIdInput.value = item.id;
+      if (saveItemTypeInput) saveItemTypeInput.value = item.type;
+      if (saveItemIdInput) saveItemIdInput.value = item.id;
       if (itemLabel) {
         itemLabel.textContent = item.label
           ? "Elemento: " + item.label
           : "Gestiona los permisos del elemento seleccionado.";
+      }
+      if (folderNote) {
+        folderNote.hidden = item.type !== "folder";
+      }
+      if (manageFolderNote) {
+        manageFolderNote.hidden = item.type !== "folder";
       }
 
       const rows =
@@ -704,6 +725,35 @@
       );
     });
     closeButtons.forEach((button) => button.addEventListener("click", closeModal));
+    if (saveButton && saveForm && savePayloadInput) {
+      saveButton.addEventListener("click", () => {
+        if (!tableBody) {
+          return;
+        }
+        if (saveForm.dataset.submitting === "1") {
+          return;
+        }
+        const payload = [];
+        Array.from(tableBody.querySelectorAll("tr[data-access-row-main='1']")).forEach((row) => {
+          const userId = Number(row.getAttribute("data-access-user-id") || 0);
+          const permissionId = Number(row.getAttribute("data-access-permission-id") || 0);
+          const select = row.querySelector("[data-access-level-select]");
+          const level = select ? select.value : "";
+          if (!userId || !level) {
+            return;
+          }
+          payload.push({
+            user_id: userId,
+            permission_id: permissionId,
+            level,
+          });
+        });
+        savePayloadInput.value = JSON.stringify(payload);
+        saveForm.dataset.submitting = "1";
+        setButtonLoading(saveButton, true, messages.processing || "Guardando...");
+        saveForm.submit();
+      });
+    }
 
     return {
       open: openFromItem,
@@ -717,6 +767,12 @@
     }
 
     const itemLabel = modal.querySelector("[data-access-item-label]");
+    const folderNote = modal.querySelector("[data-access-folder-note]");
+    const saveForm = modal.querySelector("[data-access-save-form]");
+    const saveItemTypeInput = modal.querySelector("[data-access-save-item-type]");
+    const saveItemIdInput = modal.querySelector("[data-access-save-item-id]");
+    const savePayloadInput = modal.querySelector("[data-access-save-payload]");
+    const saveButton = modal.querySelector('[data-action="save-access-changes"]');
     const tableBody = modal.querySelector("[data-access-current-body]");
     const emptyRow = modal.querySelector("[data-access-current-empty]");
     const filterSelect = modal.querySelector("[data-access-filter]");
@@ -744,6 +800,8 @@
         tr.setAttribute("data-access-row-main", "1");
         tr.setAttribute("data-access-kind", rowKind);
         tr.setAttribute("data-access-row-key", rowKey);
+        tr.setAttribute("data-access-user-id", String(row.user_id || ""));
+        tr.setAttribute("data-access-permission-id", String(row.id || ""));
         const userCell = document.createElement("td");
         userCell.textContent = row.user || "";
         tr.appendChild(userCell);
@@ -760,61 +818,11 @@
         expiresCell.textContent = row.expires_at || "";
         tr.appendChild(expiresCell);
         const actionsCell = document.createElement("td");
-        const hasEditUrl = !!row.edit_url;
-        const hasRevokeUrl = !!row.revoke_url;
-        if (hasEditUrl) {
-          const detailsLink = document.createElement("a");
-          detailsLink.href = row.edit_url;
-          detailsLink.textContent = row.inherited ? "Editar origen" : "Editar";
-          actionsCell.appendChild(detailsLink);
-        } else {
-          actionsCell.appendChild(document.createTextNode("—"));
-        }
-
-        if (hasRevokeUrl) {
-          if (hasEditUrl) {
-            actionsCell.appendChild(document.createTextNode(" | "));
-          }
-          const revokeLink = document.createElement("a");
-          revokeLink.href = row.revoke_url;
-          revokeLink.textContent = row.inherited ? "Revocar origen" : "Revocar";
-          revokeLink.addEventListener("click", (event) => {
-            if (!window.confirm("¿Revocar este permiso?")) {
-              event.preventDefault();
-            }
-          });
-          actionsCell.appendChild(revokeLink);
-        }
-
-        const userPermissionsHtml = row.user_id ? userPermissionsHtmlByUser[row.user_id] : "";
-        let detailsRow = null;
-        if (userPermissionsHtml) {
-          actionsCell.appendChild(document.createTextNode(" | "));
-          const userLink = document.createElement("a");
-          userLink.href = "#";
-          userLink.textContent = "Ver permisos usuario";
-          actionsCell.appendChild(userLink);
-
-          detailsRow = document.createElement("tr");
-          detailsRow.setAttribute("data-access-row", "1");
-          detailsRow.setAttribute("data-access-kind", rowKind);
-          detailsRow.setAttribute("data-access-parent-key", rowKey);
-          detailsRow.hidden = true;
-          const detailsCell = document.createElement("td");
-          detailsCell.colSpan = 6;
-          detailsCell.className = "shared-docs-access-user-details";
-          detailsCell.innerHTML = userPermissionsHtml;
-          detailsRow.appendChild(detailsCell);
-
-          userLink.addEventListener("click", (event) => {
-            event.preventDefault();
-            detailsRow.hidden = !detailsRow.hidden;
-          });
-        }
+        const levelSelect = buildAccessLevelSelect(resolveAccessLevel(row));
+        actionsCell.appendChild(levelSelect);
 
         tr.appendChild(actionsCell);
         tableBody.appendChild(tr);
-        if (detailsRow) tableBody.appendChild(detailsRow);
       });
       rowsFilter.apply();
     };
@@ -822,6 +830,16 @@
     const closeModal = () => {
       modal.hidden = true;
       if (itemLabel) itemLabel.textContent = "";
+      if (saveItemTypeInput) saveItemTypeInput.value = "";
+      if (saveItemIdInput) saveItemIdInput.value = "";
+      if (savePayloadInput) savePayloadInput.value = "";
+      if (folderNote) folderNote.hidden = true;
+      if (saveForm) {
+        saveForm.dataset.submitting = "0";
+      }
+      if (saveButton) {
+        setButtonLoading(saveButton, false);
+      }
       clearRows();
       rowsFilter.reset();
     };
@@ -831,6 +849,11 @@
       if (itemLabel) {
         itemLabel.textContent = item.label ? `Elemento: ${item.label}` : "";
       }
+      if (folderNote) {
+        folderNote.hidden = item.type !== "folder";
+      }
+      if (saveItemTypeInput) saveItemTypeInput.value = item.type;
+      if (saveItemIdInput) saveItemIdInput.value = item.id;
       const rows =
         item.type === "folder"
           ? permissionsByFolder[item.id] || []
@@ -852,6 +875,35 @@
       );
     });
     closeButtons.forEach((button) => button.addEventListener("click", closeModal));
+    if (saveButton && saveForm && savePayloadInput) {
+      saveButton.addEventListener("click", () => {
+        if (!tableBody) {
+          return;
+        }
+        if (saveForm.dataset.submitting === "1") {
+          return;
+        }
+        const payload = [];
+        Array.from(tableBody.querySelectorAll("tr[data-access-row-main='1']")).forEach((row) => {
+          const userId = Number(row.getAttribute("data-access-user-id") || 0);
+          const permissionId = Number(row.getAttribute("data-access-permission-id") || 0);
+          const select = row.querySelector("[data-access-level-select]");
+          const level = select ? select.value : "";
+          if (!userId || !level) {
+            return;
+          }
+          payload.push({
+            user_id: userId,
+            permission_id: permissionId,
+            level,
+          });
+        });
+        savePayloadInput.value = JSON.stringify(payload);
+        saveForm.dataset.submitting = "1";
+        setButtonLoading(saveButton, true, messages.processing || "Guardando...");
+        saveForm.submit();
+      });
+    }
 
     return { open };
   };
@@ -864,6 +916,7 @@
     const itemLabel = modal.querySelector("[data-access-item-label]");
     const itemTypeInput = modal.querySelector("[data-access-item-type]");
     const itemIdInput = modal.querySelector("[data-access-item-id]");
+    const folderNote = modal.querySelector("[data-access-folder-note-manage]");
     const closeButtons = modal.querySelectorAll('[data-action="close-access-manage-modal"]');
     const openButtons = Array.from(document.querySelectorAll(".shared-docs-open-permissions-manage-modal"));
 
@@ -872,6 +925,7 @@
       if (itemLabel) itemLabel.textContent = "";
       if (itemTypeInput) itemTypeInput.value = "";
       if (itemIdInput) itemIdInput.value = "";
+      if (folderNote) folderNote.hidden = true;
       Array.from(modal.querySelectorAll(".shared-docs-user-checkbox")).forEach((checkbox) => {
         checkbox.checked = false;
       });
@@ -889,6 +943,7 @@
       if (itemTypeInput) itemTypeInput.value = item.type;
       if (itemIdInput) itemIdInput.value = item.id;
       if (itemLabel) itemLabel.textContent = item.label ? `Elemento: ${item.label}` : "";
+      if (folderNote) folderNote.hidden = item.type !== "folder";
       modal.hidden = false;
     };
 
@@ -1495,6 +1550,8 @@
 
     const rows = Array.from(table.querySelectorAll("[data-resource-row]"));
     const emptyMessage = document.querySelector("[data-resource-empty]");
+    const typeButtons = Array.from(document.querySelectorAll("[data-resource-type-filter]"));
+    let activeType = "all";
 
     const applyFilter = () => {
       const term = (searchInput.value || "").trim().toLowerCase();
@@ -1502,9 +1559,12 @@
 
       rows.forEach((row) => {
         const text = (row.textContent || "").toLowerCase();
-        const matches = term === "" || text.indexOf(term) !== -1;
-        row.hidden = !matches;
-        if (matches) {
+        const rowType = row.getAttribute("data-resource-kind") || "";
+        const matchesTerm = term === "" || text.indexOf(term) !== -1;
+        const matchesType = activeType === "all" || rowType === activeType;
+        const isVisible = matchesTerm && matchesType;
+        row.hidden = !isVisible;
+        if (isVisible) {
           visible += 1;
         }
       });
@@ -1515,6 +1575,15 @@
     };
 
     searchInput.addEventListener("input", applyFilter);
+    typeButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        activeType = button.getAttribute("data-resource-type-filter") || "all";
+        typeButtons.forEach((btn) => {
+          btn.classList.toggle("is-active", btn === button);
+        });
+        applyFilter();
+      });
+    });
     applyFilter();
   };
 

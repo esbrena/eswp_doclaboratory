@@ -596,7 +596,7 @@
       try {
         const [folders, files, breadcrumb] = await Promise.all([
           folderId ? requestJson(`folders?parent_id=${folderId}`) : requestJson("folders"),
-          folderId ? requestJson(`files?folder_id=${folderId}`) : Promise.resolve([]),
+          folderId ? requestJson(`files?folder_id=${folderId}`) : requestJson("files"),
           folderId ? requestJson(`folder/${folderId}/breadcrumb`) : Promise.resolve([]),
         ]);
         state.folders = Array.isArray(folders) ? folders : [];

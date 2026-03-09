@@ -193,13 +193,17 @@ class Rest_Controller
     {
         $folder_id = (int) $request->get_param('folder_id');
         $user_id = get_current_user_id();
-
-        if (! $this->permission_manager->user_can_view_folder($user_id, $folder_id)) {
+        if ($folder_id > 0 && ! $this->permission_manager->user_can_view_folder($user_id, $folder_id)) {
             return new WP_Error(
                 'shared_docs_forbidden',
                 __('No tienes acceso a esta carpeta.', 'shared-docs-manager'),
                 array('status' => 403)
             );
+        }
+
+        $accessible_file_ids = array_map('intval', $this->permission_manager->get_accessible_file_ids($user_id, 'can_read'));
+        if (empty($accessible_file_ids)) {
+            return rest_ensure_response(array());
         }
 
         $files = get_posts(
@@ -209,13 +213,7 @@ class Rest_Controller
                 'posts_per_page' => -1,
                 'orderby'        => 'title',
                 'order'          => 'ASC',
-                'meta_query'     => array(
-                    array(
-                        'key'     => 'shared_folder_id',
-                        'value'   => $folder_id,
-                        'compare' => '=',
-                    ),
-                ),
+                'post__in'       => $accessible_file_ids,
             )
         );
 
@@ -223,6 +221,15 @@ class Rest_Controller
 
         foreach ($files as $file) {
             $file_id = (int) $file->ID;
+            $file_folder_id = (int) get_post_meta($file_id, 'shared_folder_id', true);
+            if ($folder_id > 0 && $file_folder_id !== $folder_id) {
+                continue;
+            }
+            if ($folder_id <= 0 && $file_folder_id > 0 && $this->permission_manager->user_can_view_folder($user_id, $file_folder_id)) {
+                // Los archivos de carpetas visibles se listan dentro de su carpeta, no en raíz.
+                continue;
+            }
+
             $can_read = $this->permission_manager->user_can_access_file($user_id, $file_id, 'can_read');
             if (! $can_read) {
                 continue;
@@ -243,7 +250,7 @@ class Rest_Controller
                 'mime_type'      => $mime_type,
                 'size'           => $size,
                 'modified'       => mysql2date('c', $file->post_modified_gmt),
-                'folder_id'      => $folder_id,
+                'folder_id'      => $folder_id > 0 ? $folder_id : 0,
                 'can_download'   => (bool) $can_download,
                 'is_excel'       => (bool) $is_excel,
                 'can_edit_excel' => (bool) ($is_excel && $can_edit_excel),
@@ -306,6 +313,10 @@ class Rest_Controller
         $filename = $path ? basename($path) : $file->post_title;
         $mime_type = (string) get_post_mime_type($file_id);
         $is_excel = File_Helper::is_excel_file($filename, $mime_type);
+        $folder_id = (int) get_post_meta($file_id, 'shared_folder_id', true);
+        $visible_folder_id = $folder_id > 0 && ! $this->permission_manager->user_can_view_folder($user_id, $folder_id)
+            ? 0
+            : $folder_id;
 
         return rest_ensure_response(
             array(
@@ -313,7 +324,7 @@ class Rest_Controller
                 'title'          => $file->post_title,
                 'filename'       => $filename,
                 'mime_type'      => $mime_type,
-                'folder_id'      => (int) get_post_meta($file_id, 'shared_folder_id', true),
+                'folder_id'      => $visible_folder_id,
                 'can_download'   => (bool) $this->permission_manager->user_can_access_file($user_id, $file_id, 'can_download'),
                 'is_excel'       => (bool) $is_excel,
                 'can_edit_excel' => (bool) ($is_excel && $this->permission_manager->user_can_access_file($user_id, $file_id, 'can_edit_excel')),
