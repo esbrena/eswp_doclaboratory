@@ -109,15 +109,6 @@
     return response.blob();
   };
 
-  const permissionStateLabel = (row, key, fallbackBool) => {
-    const labelKey = `${key}_label`;
-    if (row && row[labelKey]) {
-      return String(row[labelKey]);
-    }
-
-    return fallbackBool ? "Permitir" : "Denegar";
-  };
-
   const resolveAccessLevel = (row) => {
     if (!row) {
       return "reader";
@@ -131,12 +122,22 @@
     return "remove";
   };
 
+  const permissionAllows = (row, key, fallbackBool) => {
+    if (!row) {
+      return !!fallbackBool;
+    }
+    if (Object.prototype.hasOwnProperty.call(row, key)) {
+      return Number(row[key]) === 1;
+    }
+    return !!fallbackBool;
+  };
+
   const buildAccessLevelSelect = (selectedValue) => {
     const select = document.createElement("select");
     select.setAttribute("data-access-level-select", "1");
     const options = [
-      { value: "reader", label: "Lector (lectura y descarga)" },
-      { value: "editor", label: "Editor (lectura, descarga y edición Excel)" },
+      { value: "reader", label: "Lector" },
+      { value: "editor", label: "Editor" },
       { value: "remove", label: "Quitar acceso" },
     ];
     options.forEach((option) => {
@@ -613,15 +614,15 @@
         tr.appendChild(userCell);
 
         const readCell = document.createElement("td");
-        readCell.textContent = permissionStateLabel(row, "read_state", !!row.can_read);
+        readCell.textContent = permissionAllows(row, "read_state", !!row.can_read) ? "✔" : "";
         tr.appendChild(readCell);
 
         const downloadCell = document.createElement("td");
-        downloadCell.textContent = permissionStateLabel(row, "download_state", !!row.can_download);
+        downloadCell.textContent = permissionAllows(row, "download_state", !!row.can_download) ? "✔" : "";
         tr.appendChild(downloadCell);
 
         const editExcelCell = document.createElement("td");
-        editExcelCell.textContent = permissionStateLabel(row, "edit_excel_state", !!row.can_edit_excel);
+        editExcelCell.textContent = permissionAllows(row, "edit_excel_state", !!row.can_edit_excel) ? "✔" : "";
         tr.appendChild(editExcelCell);
 
         const expiresCell = document.createElement("td");
@@ -806,13 +807,13 @@
         userCell.textContent = row.user || "";
         tr.appendChild(userCell);
         const readCell = document.createElement("td");
-        readCell.textContent = permissionStateLabel(row, "read_state", !!row.can_read);
+        readCell.textContent = permissionAllows(row, "read_state", !!row.can_read) ? "✔" : "";
         tr.appendChild(readCell);
         const downloadCell = document.createElement("td");
-        downloadCell.textContent = permissionStateLabel(row, "download_state", !!row.can_download);
+        downloadCell.textContent = permissionAllows(row, "download_state", !!row.can_download) ? "✔" : "";
         tr.appendChild(downloadCell);
         const editCell = document.createElement("td");
-        editCell.textContent = permissionStateLabel(row, "edit_excel_state", !!row.can_edit_excel);
+        editCell.textContent = permissionAllows(row, "edit_excel_state", !!row.can_edit_excel) ? "✔" : "";
         tr.appendChild(editCell);
         const expiresCell = document.createElement("td");
         expiresCell.textContent = row.expires_at || "";
@@ -1054,6 +1055,7 @@
     const saveExcelButton = modal.querySelector('[data-action="file-modal-save-excel"]');
     const downloadButton = modal.querySelector('[data-action="file-modal-download"]');
     const closeButtons = modal.querySelectorAll('[data-action="close-file-modal"]');
+    const openButtons = Array.from(document.querySelectorAll(".shared-docs-open-file-modal"));
 
     const state = {
       item: null,
@@ -1229,6 +1231,27 @@
     closeButtons.forEach((button) => {
       button.addEventListener("click", closeModal);
     });
+    openButtons.forEach((button) => {
+      button.addEventListener("click", async () => {
+        const item = {
+          type: button.getAttribute("data-item-type") || "file",
+          id: button.getAttribute("data-item-id") || "",
+          label: button.getAttribute("data-item-label") || "",
+          openUrl: button.getAttribute("data-open-url") || "",
+          downloadUrl: button.getAttribute("data-download-url") || "",
+          isExcel: button.getAttribute("data-is-excel") === "1",
+          canEditExcel: button.getAttribute("data-can-edit-excel") === "1",
+          mimeType: button.getAttribute("data-mime-type") || "",
+          filename: button.getAttribute("data-filename") || "",
+        };
+        setButtonLoading(button, true, messages.processing || "Procesando...");
+        try {
+          await openFromItem(item);
+        } finally {
+          setButtonLoading(button, false);
+        }
+      });
+    });
 
     if (downloadButton) {
       downloadButton.addEventListener("click", () => {
@@ -1311,7 +1334,8 @@
     const singleOpenButton = panel.querySelector('[data-action="tree-single-open"]');
     const singleDownloadButton = panel.querySelector('[data-action="tree-single-download"]');
     const singleRenameButton = panel.querySelector('[data-action="tree-single-rename"]');
-    const singleAccessButton = panel.querySelector('[data-action="tree-single-access"]');
+    const singleAccessViewButton = panel.querySelector('[data-action="tree-single-access-view"]');
+    const singleAccessManageButton = panel.querySelector('[data-action="tree-single-access-manage"]');
     const singleHistoryButton = panel.querySelector('[data-action="tree-single-history"]');
     const singleMoveButton = panel.querySelector('[data-action="tree-single-move"]');
     const singleDeleteButton = panel.querySelector('[data-action="tree-single-delete"]');
@@ -1460,13 +1484,23 @@
       });
     }
 
-    if (singleAccessButton) {
-      singleAccessButton.addEventListener("click", () => {
+    if (singleAccessViewButton) {
+      singleAccessViewButton.addEventListener("click", () => {
         const item = getSingleItem();
         if (!item) {
           return;
         }
-        modalApis.access.open(item);
+        modalApis.accessView.open(item);
+      });
+    }
+
+    if (singleAccessManageButton) {
+      singleAccessManageButton.addEventListener("click", () => {
+        const item = getSingleItem();
+        if (!item) {
+          return;
+        }
+        modalApis.accessManage.open(item);
       });
     }
 
@@ -1591,15 +1625,15 @@
   setupFormSubmitLoading();
   const moveModalApi = setupSingleMoveModal();
   const renameModalApi = setupRenameModal();
-  const accessModalApi = setupAccessModal();
-  setupAccessViewModal();
-  setupAccessManageModal();
+  const accessViewModalApi = setupAccessViewModal();
+  const accessManageModalApi = setupAccessManageModal();
   const historyModalApi = setupHistoryModal();
   const fileModalApi = setupFileModal();
   setupTreeSelectionActions({
     move: moveModalApi,
     rename: renameModalApi,
-    access: accessModalApi,
+    accessView: accessViewModalApi,
+    accessManage: accessManageModalApi,
     history: historyModalApi,
     file: fileModalApi,
   });
