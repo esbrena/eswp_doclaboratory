@@ -5,6 +5,7 @@
   }
 
   const initialized = new WeakSet();
+  const initializedBrowser = new WeakSet();
 
   const getHeaders = (asJson = true) => {
     const headers = { "X-WP-Nonce": config.nonce };
@@ -668,9 +669,93 @@
     }
   };
 
+  const initAccessBrowser = (root) => {
+    if (!root || initializedBrowser.has(root)) {
+      return;
+    }
+    initializedBrowser.add(root);
+
+    const searchInput = root.querySelector("[data-browser-search]");
+    const filterButtons = Array.from(root.querySelectorAll("[data-browser-filter]"));
+    const tree = root.querySelector("[data-browser-tree]");
+    const empty = root.querySelector("[data-browser-empty]");
+    if (!tree) {
+      return;
+    }
+
+    let activeFilter = "all";
+
+    const evaluateItem = (item, term) => {
+      if (!item) return false;
+      const kind = item.getAttribute("data-browser-kind") || "";
+      const title = (item.getAttribute("data-browser-title") || "").toLowerCase();
+      if (kind === "file") {
+        const group = item.getAttribute("data-browser-group") || "";
+        const termMatch = term === "" || title.indexOf(term) !== -1;
+        const filterMatch = activeFilter === "all" || group === activeFilter;
+        const visible = termMatch && filterMatch;
+        item.hidden = !visible;
+        return visible;
+      }
+
+      const childrenWrap = item.querySelector(":scope > .shared-docs-browser-children");
+      let childVisible = false;
+      if (childrenWrap) {
+        const children = Array.from(childrenWrap.querySelectorAll(":scope > [data-browser-item]"));
+        children.forEach((child) => {
+          if (evaluateItem(child, term)) {
+            childVisible = true;
+          }
+        });
+      }
+      const selfMatch = term === "" || title.indexOf(term) !== -1;
+      const folderMatchAllowed = activeFilter === "all" || term !== "";
+      const visible = (folderMatchAllowed && selfMatch) || childVisible;
+      item.hidden = !visible;
+      if (!visible && item.open) {
+        item.open = false;
+      }
+      if (visible && term !== "" && childVisible) {
+        item.open = true;
+      }
+      return visible;
+    };
+
+    const applyFilters = () => {
+      const term = (searchInput ? searchInput.value : "").trim().toLowerCase();
+      const topItems = Array.from(tree.querySelectorAll(":scope > [data-browser-item]"));
+      let visibleCount = 0;
+      topItems.forEach((item) => {
+        if (evaluateItem(item, term)) {
+          visibleCount += 1;
+        }
+      });
+      if (empty) {
+        empty.hidden = visibleCount > 0;
+      }
+    };
+
+    if (searchInput) {
+      searchInput.addEventListener("input", applyFilters);
+    }
+    filterButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        activeFilter = button.getAttribute("data-browser-filter") || "all";
+        filterButtons.forEach((btn) => {
+          btn.classList.toggle("is-active", btn === button);
+        });
+        applyFilters();
+      });
+    });
+
+    applyFilters();
+  };
+
   const scanAndInit = () => {
     const roots = Array.from(document.querySelectorAll("#shared-docs-manager"));
     roots.forEach(initManager);
+    const browsers = Array.from(document.querySelectorAll("[data-shared-docs-browser]"));
+    browsers.forEach(initAccessBrowser);
   };
 
   scanAndInit();

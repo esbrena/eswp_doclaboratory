@@ -48,6 +48,8 @@ class Shortcode_Manager
         add_shortcode('shared_document_drive', array($this, 'render_full_shortcode'));
         add_shortcode('shared_document_overview', array($this, 'render_overview_shortcode'));
         add_shortcode('shared_document_manager_overview', array($this, 'render_overview_shortcode'));
+        add_shortcode('shared_document_access_list', array($this, 'render_access_list_shortcode'));
+        add_shortcode('shared_document_browser', array($this, 'render_access_list_shortcode'));
     }
 
     /**
@@ -144,6 +146,49 @@ class Shortcode_Manager
         $atts['manager_url'] = $atts['manager_url'] !== '' ? esc_url_raw($atts['manager_url']) : $this->default_manager_url();
 
         return $this->front_controller->render_overview($user_id, $atts);
+    }
+
+    /**
+     * Renderiza listado accesible en modo tabla o lista.
+     *
+     * @param array $atts Atributos.
+     *
+     * @return string
+     */
+    public function render_access_list_shortcode($atts = array())
+    {
+        $atts = shortcode_atts(
+            array(
+                'mode'                => 'table',
+                'title'               => __('Mis documentos', 'shared-docs-manager'),
+                'guest_message'       => __('Debes iniciar sesión para ver los documentos compartidos.', 'shared-docs-manager'),
+                'no_access_message'   => __('No tienes acceso a carpetas compartidas.', 'shared-docs-manager'),
+                'hide_when_no_access' => 'no',
+            ),
+            $atts,
+            'shared_document_access_list'
+        );
+
+        if (! is_user_logged_in()) {
+            return '<div class="shared-docs-message shared-docs-guest-message">' . esc_html($atts['guest_message']) . '</div>';
+        }
+
+        $user_id = get_current_user_id();
+        if (! $this->permission_manager->user_has_access($user_id)) {
+            $hide_when_no_access = in_array(strtolower((string) $atts['hide_when_no_access']), array('yes', '1', 'true'), true);
+            if ($hide_when_no_access) {
+                return '';
+            }
+
+            $message = trim((string) $atts['no_access_message']);
+            if ($message === '') {
+                $message = __('No tienes acceso a carpetas compartidas.', 'shared-docs-manager');
+            }
+
+            return '<div class="shared-docs-message shared-docs-no-access">' . esc_html($message) . '</div>';
+        }
+
+        return $this->front_controller->render_access_browser($user_id, $atts);
     }
 
     /**

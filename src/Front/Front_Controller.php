@@ -295,6 +295,67 @@ class Front_Controller
     }
 
     /**
+     * Renderiza explorador de accesos (tabla o lista) para usuario.
+     *
+     * @param int   $user_id Usuario.
+     * @param array $atts    Atributos de shortcode.
+     *
+     * @return string
+     */
+    public function render_access_browser($user_id, $atts = array())
+    {
+        $user_id = (int) $user_id;
+        $mode = isset($atts['mode']) ? strtolower((string) $atts['mode']) : 'table';
+        if (! in_array($mode, array('table', 'list'), true)) {
+            $mode = 'table';
+        }
+        $title = isset($atts['title']) ? (string) $atts['title'] : __('Mis documentos', 'shared-docs-manager');
+
+        $this->enqueue_assets();
+        $nodes = $this->build_access_browser_nodes($user_id);
+
+        ob_start();
+        ?>
+        <div class="shared-docs-browser shared-docs-browser--<?php echo esc_attr($mode); ?>" data-shared-docs-browser data-browser-mode="<?php echo esc_attr($mode); ?>">
+            <div class="shared-docs-browser__toolbar">
+                <div>
+                    <h3 class="shared-docs-browser__title"><?php echo esc_html($title); ?></h3>
+                    <p class="shared-docs-browser__hint"><?php esc_html_e('Despliega carpetas para ver sus recursos. Puedes buscar y filtrar por tipo de archivo.', 'shared-docs-manager'); ?></p>
+                </div>
+                <input type="search" class="shared-docs-browser__search" data-browser-search placeholder="<?php esc_attr_e('Buscar carpeta o archivo...', 'shared-docs-manager'); ?>" />
+            </div>
+            <div class="shared-docs-browser__filters" data-browser-filters>
+                <button type="button" class="shared-docs-btn shared-docs-btn-secondary is-active" data-browser-filter="all"><?php esc_html_e('Todos', 'shared-docs-manager'); ?></button>
+                <button type="button" class="shared-docs-btn shared-docs-btn-secondary" data-browser-filter="pdf"><?php esc_html_e('PDF', 'shared-docs-manager'); ?></button>
+                <button type="button" class="shared-docs-btn shared-docs-btn-secondary" data-browser-filter="docs"><?php esc_html_e('Docs', 'shared-docs-manager'); ?></button>
+                <button type="button" class="shared-docs-btn shared-docs-btn-secondary" data-browser-filter="excel"><?php esc_html_e('Excel', 'shared-docs-manager'); ?></button>
+                <button type="button" class="shared-docs-btn shared-docs-btn-secondary" data-browser-filter="ppt"><?php esc_html_e('PPT', 'shared-docs-manager'); ?></button>
+                <button type="button" class="shared-docs-btn shared-docs-btn-secondary" data-browser-filter="images"><?php esc_html_e('Imágenes', 'shared-docs-manager'); ?></button>
+            </div>
+
+            <?php if ($mode === 'table') : ?>
+                <div class="shared-docs-browser__header-row">
+                    <span><?php esc_html_e('Nombre', 'shared-docs-manager'); ?></span>
+                    <span><?php esc_html_e('Tipo', 'shared-docs-manager'); ?></span>
+                    <span><?php esc_html_e('Última modificación', 'shared-docs-manager'); ?></span>
+                </div>
+            <?php endif; ?>
+
+            <div class="shared-docs-browser__tree" data-browser-tree>
+                <?php if (empty($nodes)) : ?>
+                    <div class="shared-docs-empty"><?php esc_html_e('No hay contenido accesible para mostrar.', 'shared-docs-manager'); ?></div>
+                <?php else : ?>
+                    <?php echo $this->render_access_browser_nodes($nodes, $mode, 0); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+                <?php endif; ?>
+            </div>
+            <p class="shared-docs-empty" data-browser-empty hidden><?php esc_html_e('No hay resultados con los filtros actuales.', 'shared-docs-manager'); ?></p>
+        </div>
+        <?php
+
+        return (string) ob_get_clean();
+    }
+
+    /**
      * Encola assets y datos para JS.
      *
      * @return void
@@ -343,6 +404,279 @@ class Front_Controller
             )
         );
         $this->localized = true;
+    }
+
+    /**
+     * Construye nodos jerárquicos para render del explorador.
+     *
+     * @param int $user_id Usuario.
+     *
+     * @return array
+     */
+    private function build_access_browser_nodes($user_id)
+    {
+        $folder_ids = array_map('intval', $this->permission_manager->get_accessible_folder_ids((int) $user_id, 'can_read'));
+        $file_ids = array_map('intval', $this->permission_manager->get_accessible_file_ids((int) $user_id, 'can_read'));
+
+        $folder_ids = array_values(array_unique(array_filter($folder_ids)));
+        $file_ids = array_values(array_unique(array_filter($file_ids)));
+
+        $folders = empty($folder_ids) ? array() : get_posts(
+            array(
+                'post_type'      => 'shared_folder',
+                'post_status'    => array('publish', 'private'),
+                'posts_per_page' => -1,
+                'post__in'       => $folder_ids,
+                'orderby'        => 'title',
+                'order'          => 'ASC',
+            )
+        );
+        $files = empty($file_ids) ? array() : get_posts(
+            array(
+                'post_type'      => 'attachment',
+                'post_status'    => array('inherit', 'private'),
+                'posts_per_page' => -1,
+                'post__in'       => $file_ids,
+                'orderby'        => 'title',
+                'order'          => 'ASC',
+            )
+        );
+
+        $folder_index = array();
+        foreach ((array) $folders as $folder) {
+            $folder_index[(int) $folder->ID] = $folder;
+        }
+
+        $children_map = array();
+        foreach ((array) $folders as $folder) {
+            $folder_id = (int) $folder->ID;
+            $parent_id = (int) $folder->post_parent;
+            if (! isset($folder_index[$parent_id])) {
+                $parent_id = 0;
+            }
+            if (! isset($children_map[$parent_id])) {
+                $children_map[$parent_id] = array();
+            }
+            $children_map[$parent_id][] = $folder_id;
+        }
+
+        $files_by_folder = array();
+        $root_files = array();
+        foreach ((array) $files as $file) {
+            $file_id = (int) $file->ID;
+            $folder_id = (int) get_post_meta($file_id, 'shared_folder_id', true);
+            $node = $this->build_access_browser_file_node($file);
+            if ($folder_id > 0 && isset($folder_index[$folder_id])) {
+                if (! isset($files_by_folder[$folder_id])) {
+                    $files_by_folder[$folder_id] = array();
+                }
+                $files_by_folder[$folder_id][] = $node;
+            } else {
+                $root_files[] = $node;
+            }
+        }
+
+        $root_nodes = array();
+        foreach ((array) ($children_map[0] ?? array()) as $root_folder_id) {
+            $node = $this->build_access_browser_folder_node($root_folder_id, $children_map, $files_by_folder, $folder_index);
+            if (! empty($node)) {
+                $root_nodes[] = $node;
+            }
+        }
+        foreach ($root_files as $node) {
+            $root_nodes[] = $node;
+        }
+
+        usort($root_nodes, array($this, 'sort_access_browser_nodes'));
+
+        return $root_nodes;
+    }
+
+    /**
+     * Construye nodo de carpeta con recursión.
+     *
+     * @param int   $folder_id       Carpeta.
+     * @param array $children_map    Hijas por carpeta.
+     * @param array $files_by_folder Archivos por carpeta.
+     * @param array $folder_index    Índice de carpetas.
+     *
+     * @return array
+     */
+    private function build_access_browser_folder_node($folder_id, $children_map, $files_by_folder, $folder_index)
+    {
+        if (! isset($folder_index[$folder_id])) {
+            return array();
+        }
+
+        $folder = $folder_index[$folder_id];
+        $children = array();
+        foreach ((array) ($children_map[$folder_id] ?? array()) as $child_id) {
+            $child = $this->build_access_browser_folder_node((int) $child_id, $children_map, $files_by_folder, $folder_index);
+            if (! empty($child)) {
+                $children[] = $child;
+            }
+        }
+        foreach ((array) ($files_by_folder[$folder_id] ?? array()) as $file_node) {
+            $children[] = $file_node;
+        }
+
+        usort($children, array($this, 'sort_access_browser_nodes'));
+
+        return array(
+            'kind'     => 'folder',
+            'id'       => (int) $folder->ID,
+            'title'    => (string) $folder->post_title,
+            'modified' => $this->format_post_datetime($folder->post_modified_gmt),
+            'type'     => __('Carpeta', 'shared-docs-manager'),
+            'group'    => 'folder',
+            'icon_svg' => Icon_Helper::svg_for_resource('folder'),
+            'children' => $children,
+        );
+    }
+
+    /**
+     * Construye nodo de archivo.
+     *
+     * @param object $file Post attachment.
+     *
+     * @return array
+     */
+    private function build_access_browser_file_node($file)
+    {
+        $file_id = (int) $file->ID;
+        $path = (string) get_attached_file($file_id);
+        $filename = $path !== '' ? basename($path) : (string) $file->post_title;
+        $mime = (string) get_post_mime_type($file_id);
+        $icon_key = Icon_Helper::key_for_file($filename, $mime);
+        $group = $this->map_browser_group_from_icon_key($icon_key);
+
+        return array(
+            'kind'     => 'file',
+            'id'       => $file_id,
+            'title'    => (string) $file->post_title,
+            'modified' => $this->format_post_datetime($file->post_modified_gmt),
+            'type'     => $this->label_for_browser_group($group),
+            'group'    => $group,
+            'icon_svg' => Icon_Helper::svg_for_resource('file', $filename, $mime),
+            'children' => array(),
+        );
+    }
+
+    /**
+     * Mapea icon key a grupo de filtros de browser.
+     *
+     * @param string $icon_key Clave icono.
+     *
+     * @return string
+     */
+    private function map_browser_group_from_icon_key($icon_key)
+    {
+        $map = array(
+            'pdf'   => 'pdf',
+            'doc'   => 'docs',
+            'xls'   => 'excel',
+            'ppt'   => 'ppt',
+            'image' => 'images',
+        );
+
+        return isset($map[$icon_key]) ? $map[$icon_key] : 'docs';
+    }
+
+    /**
+     * Etiqueta legible para tipo de archivo.
+     *
+     * @param string $group Grupo browser.
+     *
+     * @return string
+     */
+    private function label_for_browser_group($group)
+    {
+        $labels = array(
+            'pdf'    => 'PDF',
+            'docs'   => __('Docs', 'shared-docs-manager'),
+            'excel'  => 'Excel',
+            'ppt'    => 'PPT',
+            'images' => __('Imágenes', 'shared-docs-manager'),
+        );
+
+        return isset($labels[$group]) ? (string) $labels[$group] : __('Archivo', 'shared-docs-manager');
+    }
+
+    /**
+     * Orden de nodos: carpetas primero, luego nombre.
+     *
+     * @param array $a Nodo A.
+     * @param array $b Nodo B.
+     *
+     * @return int
+     */
+    private function sort_access_browser_nodes($a, $b)
+    {
+        $a_kind = isset($a['kind']) ? (string) $a['kind'] : 'file';
+        $b_kind = isset($b['kind']) ? (string) $b['kind'] : 'file';
+        if ($a_kind !== $b_kind) {
+            return $a_kind === 'folder' ? -1 : 1;
+        }
+
+        $a_title = isset($a['title']) ? (string) $a['title'] : '';
+        $b_title = isset($b['title']) ? (string) $b['title'] : '';
+        return strcasecmp($a_title, $b_title);
+    }
+
+    /**
+     * Renderiza nodos del browser.
+     *
+     * @param array  $nodes Nodos.
+     * @param string $mode  table|list.
+     * @param int    $level Nivel.
+     *
+     * @return string
+     */
+    private function render_access_browser_nodes($nodes, $mode, $level)
+    {
+        $html = '';
+        foreach ((array) $nodes as $node) {
+            $kind = isset($node['kind']) ? (string) $node['kind'] : 'file';
+            $title = isset($node['title']) ? (string) $node['title'] : '';
+            $type = isset($node['type']) ? (string) $node['type'] : '';
+            $modified = isset($node['modified']) ? (string) $node['modified'] : '';
+            $group = isset($node['group']) ? (string) $node['group'] : '';
+            $icon_svg = isset($node['icon_svg']) ? (string) $node['icon_svg'] : '';
+            $children = isset($node['children']) ? (array) $node['children'] : array();
+            $padding = 14 + (max(0, (int) $level) * 18);
+
+            if ($kind === 'folder') {
+                $html .= '<details class="shared-docs-browser-item shared-docs-browser-folder" data-browser-item data-browser-kind="folder" data-browser-title="' . esc_attr(strtolower($title)) . '" open>';
+                $html .= '<summary class="shared-docs-browser-row" style="--shared-docs-level-padding:' . esc_attr((string) $padding) . 'px;">';
+                $html .= '<span class="shared-docs-browser-col shared-docs-browser-col--name"><span class="shared-docs-type-icon shared-docs-type-icon--folder">' . $icon_svg . '</span><span class="shared-docs-browser-name-text">' . esc_html($title) . '</span></span>';
+                if ($mode === 'table') {
+                    $html .= '<span class="shared-docs-browser-col shared-docs-browser-col--type">' . esc_html($type) . '</span>';
+                    $html .= '<span class="shared-docs-browser-col shared-docs-browser-col--date">' . esc_html($modified) . '</span>';
+                }
+                $html .= '</summary>';
+                $html .= '<div class="shared-docs-browser-children">';
+                if (empty($children)) {
+                    $html .= '<div class="shared-docs-browser-empty-child">' . esc_html__('Sin contenido', 'shared-docs-manager') . '</div>';
+                } else {
+                    $html .= $this->render_access_browser_nodes($children, $mode, $level + 1);
+                }
+                $html .= '</div>';
+                $html .= '</details>';
+                continue;
+            }
+
+            $html .= '<div class="shared-docs-browser-item shared-docs-browser-file" data-browser-item data-browser-kind="file" data-browser-group="' . esc_attr($group) . '" data-browser-title="' . esc_attr(strtolower($title)) . '">';
+            $html .= '<div class="shared-docs-browser-row" style="--shared-docs-level-padding:' . esc_attr((string) $padding) . 'px;">';
+            $html .= '<span class="shared-docs-browser-col shared-docs-browser-col--name"><span class="shared-docs-type-icon shared-docs-type-icon--file">' . $icon_svg . '</span><span class="shared-docs-browser-name-text">' . esc_html($title) . '</span></span>';
+            if ($mode === 'table') {
+                $html .= '<span class="shared-docs-browser-col shared-docs-browser-col--type">' . esc_html($type) . '</span>';
+                $html .= '<span class="shared-docs-browser-col shared-docs-browser-col--date">' . esc_html($modified) . '</span>';
+            }
+            $html .= '</div>';
+            $html .= '</div>';
+        }
+
+        return $html;
     }
 
     /**

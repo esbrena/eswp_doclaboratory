@@ -528,3 +528,144 @@ button.shared-docs-breadcrumb__item:hover {
   border: 1px solid lightgray !important;
   color:black !important;
 }
+
+.shared-docs-browser {
+  border: 1px solid #dbe3ee;
+  border-radius: 14px;
+  padding: 14px;
+  background: #f8fafc;
+}
+
+.shared-docs-browser__toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.shared-docs-browser__title {
+  margin: 0 0 3px;
+}
+
+.shared-docs-browser__hint {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.88rem;
+}
+
+.shared-docs-browser__search {
+  min-width: 260px;
+  max-width: 100%;
+}
+
+.shared-docs-browser__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.shared-docs-browser__filters .is-active {
+  background: #2563eb !important;
+  border-color: #2563eb !important;
+  color: #fff !important;
+}
+
+.shared-docs-browser__header-row,
+.shared-docs-browser-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px 180px;
+  gap: 10px;
+  align-items: center;
+}
+
+.shared-docs-browser__header-row {
+  padding: 8px 10px;
+  border-bottom: 1px solid #dbe3ee;
+  color: #475569;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.shared-docs-browser-item {
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.shared-docs-browser-row {
+  padding: 9px 10px;
+}
+
+.shared-docs-browser-col--name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding-left: var(--shared-docs-level-padding, 14px);
+}
+
+.shared-docs-browser-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shared-docs-browser-folder > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.shared-docs-browser-folder > summary::-webkit-details-marker {
+  display: none;
+}
+
+.shared-docs-browser-folder > summary::before {
+  content: "▸";
+  margin-right: 6px;
+  color: #64748b;
+}
+
+.shared-docs-browser-folder[open] > summary::before {
+  content: "▾";
+}
+
+.shared-docs-browser-children .shared-docs-browser-row {
+  background: #fff;
+}
+
+.shared-docs-browser-empty-child {
+  margin: 6px 0 10px 36px;
+  color: #64748b;
+  font-size: 0.84rem;
+}
+
+.shared-docs-browser--list .shared-docs-browser__header-row,
+.shared-docs-browser--list .shared-docs-browser-col--type,
+.shared-docs-browser--list .shared-docs-browser-col--date {
+  display: none;
+}
+
+.shared-docs-browser--list .shared-docs-browser-row {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (max-width: 800px) {
+  .shared-docs-browser__toolbar {
+    flex-direction: column;
+  }
+
+  .shared-docs-browser__search {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .shared-docs-browser__header-row,
+  .shared-docs-browser-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .shared-docs-browser-col--type,
+  .shared-docs-browser-col--date {
+    display: none;
+  }
+}
