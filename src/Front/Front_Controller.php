@@ -338,6 +338,7 @@ class Front_Controller
                     <span><?php esc_html_e('Nombre', 'shared-docs-manager'); ?></span>
                     <span><?php esc_html_e('Tipo', 'shared-docs-manager'); ?></span>
                     <span><?php esc_html_e('Última modificación', 'shared-docs-manager'); ?></span>
+                    <span><?php esc_html_e('Acciones', 'shared-docs-manager'); ?></span>
                 </div>
             <?php endif; ?>
 
@@ -349,6 +350,41 @@ class Front_Controller
                 <?php endif; ?>
             </div>
             <p class="shared-docs-empty" data-browser-empty hidden><?php esc_html_e('No hay resultados con los filtros actuales.', 'shared-docs-manager'); ?></p>
+
+            <div class="shared-docs-modal shared-docs-modal--fullscreen" data-browser-preview-modal hidden>
+                <div class="shared-docs-modal__backdrop" data-action="close-browser-preview"></div>
+                <div class="shared-docs-modal__content shared-docs-modal__content--fullscreen" role="dialog" aria-modal="true">
+                    <header class="shared-docs-modal__header">
+                        <h4 class="shared-docs-modal__title" data-browser-preview-title><?php esc_html_e('Vista previa', 'shared-docs-manager'); ?></h4>
+                        <button type="button" class="shared-docs-modal__close" data-action="close-browser-preview">&times;</button>
+                    </header>
+                    <div class="shared-docs-modal__body" data-browser-preview-body></div>
+                    <footer class="shared-docs-modal__footer">
+                        <button type="button" class="shared-docs-btn shared-docs-btn-secondary" data-action="close-browser-preview"><?php esc_html_e('Cerrar', 'shared-docs-manager'); ?></button>
+                        <button type="button" class="shared-docs-btn shared-docs-btn-primary" data-action="browser-preview-download"><?php esc_html_e('Descargar', 'shared-docs-manager'); ?></button>
+                    </footer>
+                </div>
+            </div>
+
+            <div class="shared-docs-modal shared-docs-modal--fullscreen" data-browser-excel-modal hidden>
+                <div class="shared-docs-modal__backdrop" data-action="close-browser-excel"></div>
+                <div class="shared-docs-modal__content shared-docs-modal__content--fullscreen" role="dialog" aria-modal="true">
+                    <header class="shared-docs-modal__header">
+                        <h4 class="shared-docs-modal__title" data-browser-excel-title><?php esc_html_e('Editar Excel', 'shared-docs-manager'); ?></h4>
+                        <button type="button" class="shared-docs-modal__close" data-action="close-browser-excel">&times;</button>
+                    </header>
+                    <div class="shared-docs-modal__body">
+                        <p class="shared-docs-modal__hint" data-browser-excel-hint><?php esc_html_e('Haz clic sobre una celda para editarla.', 'shared-docs-manager'); ?></p>
+                        <div class="shared-docs-excel-table-wrap">
+                            <table class="shared-docs-excel-table" data-browser-excel-table></table>
+                        </div>
+                    </div>
+                    <footer class="shared-docs-modal__footer">
+                        <button type="button" class="shared-docs-btn shared-docs-btn-secondary" data-action="close-browser-excel"><?php esc_html_e('Cancelar', 'shared-docs-manager'); ?></button>
+                        <button type="button" class="shared-docs-btn shared-docs-btn-primary" data-action="browser-save-excel"><?php esc_html_e('Guardar cambios', 'shared-docs-manager'); ?></button>
+                    </footer>
+                </div>
+            </div>
         </div>
         <?php
 
@@ -465,7 +501,7 @@ class Front_Controller
         foreach ((array) $files as $file) {
             $file_id = (int) $file->ID;
             $folder_id = (int) get_post_meta($file_id, 'shared_folder_id', true);
-            $node = $this->build_access_browser_file_node($file);
+            $node = $this->build_access_browser_file_node($file, $user_id);
             if ($folder_id > 0 && isset($folder_index[$folder_id])) {
                 if (! isset($files_by_folder[$folder_id])) {
                     $files_by_folder[$folder_id] = array();
@@ -541,7 +577,7 @@ class Front_Controller
      *
      * @return array
      */
-    private function build_access_browser_file_node($file)
+    private function build_access_browser_file_node($file, $user_id)
     {
         $file_id = (int) $file->ID;
         $path = (string) get_attached_file($file_id);
@@ -549,6 +585,13 @@ class Front_Controller
         $mime = (string) get_post_mime_type($file_id);
         $icon_key = Icon_Helper::key_for_file($filename, $mime);
         $group = $this->map_browser_group_from_icon_key($icon_key);
+        $is_excel = strpos($mime, 'spreadsheet') !== false
+            || strpos($mime, 'excel') !== false
+            || in_array(strtolower((string) pathinfo($filename, PATHINFO_EXTENSION)), array('xls', 'xlsx', 'xlsm', 'xlsb', 'ods', 'csv'), true);
+        $can_download = $this->permission_manager->user_can_access_file((int) $user_id, $file_id, 'can_download');
+        $can_edit_excel = $is_excel
+            ? $this->permission_manager->user_can_access_file((int) $user_id, $file_id, 'can_edit_excel')
+            : false;
 
         return array(
             'kind'     => 'file',
@@ -558,6 +601,11 @@ class Front_Controller
             'type'     => $this->label_for_browser_group($group),
             'group'    => $group,
             'icon_svg' => Icon_Helper::svg_for_resource('file', $filename, $mime),
+            'mime'     => $mime,
+            'filename' => $filename,
+            'is_excel' => (bool) $is_excel,
+            'can_download' => (bool) $can_download,
+            'can_edit_excel' => (bool) $can_edit_excel,
             'children' => array(),
         );
     }
@@ -643,6 +691,11 @@ class Front_Controller
             $group = isset($node['group']) ? (string) $node['group'] : '';
             $icon_svg = isset($node['icon_svg']) ? (string) $node['icon_svg'] : '';
             $children = isset($node['children']) ? (array) $node['children'] : array();
+            $mime = isset($node['mime']) ? (string) $node['mime'] : '';
+            $filename = isset($node['filename']) ? (string) $node['filename'] : '';
+            $is_excel = ! empty($node['is_excel']);
+            $can_download = ! empty($node['can_download']);
+            $can_edit_excel = ! empty($node['can_edit_excel']);
             $padding = 14 + (max(0, (int) $level) * 18);
 
             if ($kind === 'folder') {
@@ -672,6 +725,10 @@ class Front_Controller
                 $html .= '<span class="shared-docs-browser-col shared-docs-browser-col--type">' . esc_html($type) . '</span>';
                 $html .= '<span class="shared-docs-browser-col shared-docs-browser-col--date">' . esc_html($modified) . '</span>';
             }
+            $html .= '<span class="shared-docs-browser-col shared-docs-browser-col--actions">';
+            $html .= '<button type="button" class="shared-docs-btn shared-docs-btn-primary shared-docs-browser-file-open" data-browser-file-id="' . esc_attr((string) (int) $node['id']) . '" data-browser-file-title="' . esc_attr($title) . '" data-browser-file-mime="' . esc_attr($mime) . '" data-browser-file-name="' . esc_attr($filename) . '" data-browser-file-is-excel="' . ($is_excel ? '1' : '0') . '" data-browser-file-can-edit-excel="' . ($can_edit_excel ? '1' : '0') . '" data-browser-file-can-download="' . ($can_download ? '1' : '0') . '">' . esc_html__('Abrir', 'shared-docs-manager') . '</button>';
+            $html .= '<button type="button" class="shared-docs-btn shared-docs-btn-secondary shared-docs-browser-file-download" data-browser-file-id="' . esc_attr((string) (int) $node['id']) . '" data-browser-file-name="' . esc_attr($filename) . '"' . ($can_download ? '' : ' disabled') . '>' . esc_html__('Descargar', 'shared-docs-manager') . '</button>';
+            $html .= '</span>';
             $html .= '</div>';
             $html .= '</div>';
         }

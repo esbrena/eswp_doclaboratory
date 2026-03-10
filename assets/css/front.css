@@ -575,7 +575,7 @@ button.shared-docs-breadcrumb__item:hover {
 .shared-docs-browser__header-row,
 .shared-docs-browser-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 120px 180px;
+  grid-template-columns: minmax(0, 1fr) 120px 180px 220px;
   gap: 10px;
   align-items: center;
 }
@@ -602,6 +602,13 @@ button.shared-docs-breadcrumb__item:hover {
   gap: 8px;
   min-width: 0;
   padding-left: var(--shared-docs-level-padding, 14px);
+}
+
+.shared-docs-browser-col--actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
 .shared-docs-browser-name-text {
@@ -646,7 +653,7 @@ button.shared-docs-breadcrumb__item:hover {
 }
 
 .shared-docs-browser--list .shared-docs-browser-row {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 220px;
 }
 
 @media (max-width: 800px) {

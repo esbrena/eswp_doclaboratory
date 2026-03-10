@@ -679,11 +679,287 @@
     const filterButtons = Array.from(root.querySelectorAll("[data-browser-filter]"));
     const tree = root.querySelector("[data-browser-tree]");
     const empty = root.querySelector("[data-browser-empty]");
+    const previewModal = root.querySelector("[data-browser-preview-modal]");
+    const previewBody = root.querySelector("[data-browser-preview-body]");
+    const previewTitle = root.querySelector("[data-browser-preview-title]");
+    const previewDownloadButton = root.querySelector('[data-action="browser-preview-download"]');
+    const closePreviewButtons = Array.from(root.querySelectorAll('[data-action="close-browser-preview"]'));
+    const excelModal = root.querySelector("[data-browser-excel-modal]");
+    const excelTable = root.querySelector("[data-browser-excel-table]");
+    const excelHint = root.querySelector("[data-browser-excel-hint]");
+    const excelTitle = root.querySelector("[data-browser-excel-title]");
+    const saveExcelButton = root.querySelector('[data-action="browser-save-excel"]');
+    const closeExcelButtons = Array.from(root.querySelectorAll('[data-action="close-browser-excel"]'));
     if (!tree) {
       return;
     }
 
     let activeFilter = "all";
+    const state = {
+      previewFile: null,
+      previewObjectUrl: "",
+      excelEditor: null,
+    };
+
+    const localSetButtonLoading = (button, loading, loadingText) => {
+      if (!button) return;
+      const tag = (button.tagName || "").toUpperCase();
+      const isInput = tag === "INPUT";
+      const isButton = tag === "BUTTON";
+      if (loading) {
+        if (button.dataset.loading === "1") return;
+        if (!button.dataset.originalLabel) {
+          button.dataset.originalLabel = isInput ? button.value || "" : button.textContent || "";
+        }
+        button.dataset.loading = "1";
+        button.disabled = true;
+        button.classList.add("is-loading");
+        button.setAttribute("aria-busy", "true");
+        const label = loadingText || button.dataset.originalLabel;
+        if (isInput) {
+          button.value = label;
+        } else if (isButton) {
+          button.innerHTML = "";
+          const labelNode = document.createElement("span");
+          labelNode.className = "shared-docs-btn-label";
+          labelNode.textContent = label;
+          button.appendChild(labelNode);
+          const spinner = document.createElement("span");
+          spinner.className = "shared-docs-btn-spinner";
+          spinner.setAttribute("aria-hidden", "true");
+          button.appendChild(spinner);
+        } else {
+          button.textContent = label;
+        }
+        return;
+      }
+      button.dataset.loading = "0";
+      button.disabled = false;
+      button.classList.remove("is-loading");
+      button.removeAttribute("aria-busy");
+      if (button.dataset.originalLabel) {
+        if (isInput) {
+          button.value = button.dataset.originalLabel;
+        } else if (isButton) {
+          button.innerHTML = "";
+          const labelNode = document.createElement("span");
+          labelNode.className = "shared-docs-btn-label";
+          labelNode.textContent = button.dataset.originalLabel;
+          button.appendChild(labelNode);
+        } else {
+          button.textContent = button.dataset.originalLabel;
+        }
+      }
+    };
+
+    const localSetContainerLoading = (container, text) => {
+      if (!container) return { stop: () => {} };
+      container.innerHTML = "";
+      const loading = document.createElement("div");
+      loading.className = "shared-docs-loading";
+      const spinner = document.createElement("span");
+      spinner.className = "shared-docs-loading__spinner";
+      const label = document.createElement("span");
+      label.textContent = text || config.messages.loading || "Cargando...";
+      loading.appendChild(spinner);
+      loading.appendChild(label);
+      container.appendChild(loading);
+      return {
+        stop: () => {
+          if (loading.parentNode === container) {
+            loading.parentNode.removeChild(loading);
+          }
+        },
+      };
+    };
+
+    const parseFileFromButton = (button) => ({
+      id: Number(button.getAttribute("data-browser-file-id") || 0),
+      title: button.getAttribute("data-browser-file-title") || "",
+      filename: button.getAttribute("data-browser-file-name") || "",
+      mime_type: button.getAttribute("data-browser-file-mime") || "",
+      is_excel: button.getAttribute("data-browser-file-is-excel") === "1",
+      can_edit_excel: button.getAttribute("data-browser-file-can-edit-excel") === "1",
+      can_download: button.getAttribute("data-browser-file-can-download") === "1",
+    });
+
+    const startDownload = async (file, triggerButton = null) => {
+      if (!file || !file.id || !file.can_download) {
+        return;
+      }
+      localSetButtonLoading(triggerButton, true, config.messages.processing || "Procesando...");
+      try {
+        const blob = await requestBlob(`download/${file.id}`);
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = file.filename || file.title || `archivo-${file.id}`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+      } catch (error) {
+        // noop
+      } finally {
+        localSetButtonLoading(triggerButton, false);
+      }
+    };
+
+    const closePreview = () => {
+      if (!previewModal) return;
+      previewModal.hidden = true;
+      state.previewFile = null;
+      localSetButtonLoading(previewDownloadButton, false);
+      if (previewBody) previewBody.innerHTML = "";
+      if (state.previewObjectUrl) {
+        window.URL.revokeObjectURL(state.previewObjectUrl);
+        state.previewObjectUrl = "";
+      }
+    };
+
+    const openPreview = async (file) => {
+      if (!previewModal || !previewBody || !file) return;
+      const loading = localSetContainerLoading(previewBody, config.messages.loading || "Cargando...");
+      try {
+        const blob = await requestBlob(`download/${file.id}`);
+        const objectUrl = window.URL.createObjectURL(blob);
+        state.previewObjectUrl = objectUrl;
+        state.previewFile = file;
+        if (previewTitle) {
+          previewTitle.textContent = file.title || "Vista previa";
+        }
+        if (previewDownloadButton) {
+          previewDownloadButton.disabled = !file.can_download;
+        }
+        previewBody.innerHTML = "";
+        if (String(file.mime_type).toLowerCase().startsWith("image/")) {
+          const img = document.createElement("img");
+          img.src = objectUrl;
+          img.alt = file.title || "";
+          img.className = "shared-docs-preview-image";
+          previewBody.appendChild(img);
+        } else {
+          const frame = document.createElement("iframe");
+          frame.src = objectUrl;
+          frame.className = "shared-docs-preview-frame";
+          frame.title = file.title || "Vista previa";
+          previewBody.appendChild(frame);
+        }
+        previewModal.hidden = false;
+      } finally {
+        loading.stop();
+      }
+    };
+
+    const closeExcel = () => {
+      if (!excelModal) return;
+      excelModal.hidden = true;
+      state.excelEditor = null;
+      if (excelTable) excelTable.innerHTML = "";
+      if (excelHint) {
+        excelHint.textContent = config.messages.excelEditHint || "Haz clic sobre una celda para editarla.";
+      }
+      if (excelTitle) {
+        excelTitle.textContent = "Editar Excel";
+      }
+      if (saveExcelButton) {
+        saveExcelButton.hidden = false;
+        localSetButtonLoading(saveExcelButton, false);
+      }
+    };
+
+    const openExcel = async (file, editable) => {
+      if (!excelModal || !excelTable || !window.XLSX) {
+        return;
+      }
+      if (excelHint) {
+        excelHint.textContent = config.messages.loading || "Cargando...";
+      }
+      const blob = await requestBlob(`download/${file.id}`);
+      const buffer = await blob.arrayBuffer();
+      const workbook = window.XLSX.read(buffer, { type: "array" });
+      const sheetName = workbook.SheetNames[0];
+      const firstSheet = workbook.Sheets[sheetName];
+      const rows = window.XLSX.utils.sheet_to_json(firstSheet, {
+        header: 1,
+        raw: false,
+        blankrows: true,
+      });
+      state.excelEditor = {
+        fileId: file.id,
+        sheetName,
+        bookType: resolveBookType(file.filename || file.title),
+        editable: !!editable,
+      };
+      excelTable.innerHTML = "";
+      const maxColumns = Math.max(1, ...rows.map((row) => row.length));
+      const tbody = document.createElement("tbody");
+      rows.forEach((rowData) => {
+        const tr = document.createElement("tr");
+        for (let col = 0; col < maxColumns; col += 1) {
+          const td = document.createElement("td");
+          td.contentEditable = editable ? "true" : "false";
+          if (!editable) td.classList.add("shared-docs-excel-table__readonly");
+          td.textContent = rowData[col] !== undefined ? rowData[col] : "";
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      });
+      excelTable.appendChild(tbody);
+      if (excelHint) {
+        excelHint.textContent = editable
+          ? (config.messages.excelEditHint || "Haz clic sobre una celda para editarla.")
+          : (config.messages.excelReadOnlyHint ||
+            "Vista previa en solo lectura. No tienes permisos para editar este Excel.");
+      }
+      if (excelTitle) {
+        excelTitle.textContent = editable ? "Editar Excel" : "Vista previa Excel";
+      }
+      if (saveExcelButton) saveExcelButton.hidden = !editable;
+      excelModal.hidden = false;
+    };
+
+    const saveExcel = async () => {
+      if (!state.excelEditor || !window.XLSX || !state.excelEditor.editable || !excelTable) {
+        return;
+      }
+      localSetButtonLoading(saveExcelButton, true, config.messages.processing || "Procesando...");
+      try {
+        const rows = [];
+        excelTable.querySelectorAll("tr").forEach((rowEl) => {
+          const row = [];
+          rowEl.querySelectorAll("td").forEach((cellEl) => row.push(cellEl.textContent || ""));
+          rows.push(row);
+        });
+        const workbook = window.XLSX.utils.book_new();
+        const worksheet = window.XLSX.utils.aoa_to_sheet(rows);
+        window.XLSX.utils.book_append_sheet(workbook, worksheet, state.excelEditor.sheetName || "Sheet1");
+        const workbookBase64 = window.XLSX.write(workbook, {
+          bookType: state.excelEditor.bookType || "xlsx",
+          type: "base64",
+        });
+        await requestJson("excel/save", {
+          method: "POST",
+          body: { file_id: state.excelEditor.fileId, workbook_base64: workbookBase64 },
+        });
+        closeExcel();
+      } finally {
+        localSetButtonLoading(saveExcelButton, false);
+      }
+    };
+
+    const openFile = async (file) => {
+      if (!file || !file.id) return;
+      if (file.is_excel) {
+        await openExcel(file, !!file.can_edit_excel);
+        return;
+      }
+      if (isPreviewableMime(file.mime_type)) {
+        await openPreview(file);
+        return;
+      }
+      await startDownload(file);
+    };
 
     const evaluateItem = (item, term) => {
       if (!item) return false;
@@ -747,6 +1023,34 @@
         applyFilters();
       });
     });
+
+    Array.from(root.querySelectorAll(".shared-docs-browser-file-open")).forEach((button) => {
+      button.addEventListener("click", async () => {
+        const file = parseFileFromButton(button);
+        localSetButtonLoading(button, true, config.messages.processing || "Procesando...");
+        try {
+          await openFile(file);
+        } finally {
+          localSetButtonLoading(button, false);
+        }
+      });
+    });
+    Array.from(root.querySelectorAll(".shared-docs-browser-file-download")).forEach((button) => {
+      button.addEventListener("click", () => {
+        const file = parseFileFromButton(button);
+        startDownload(file, button);
+      });
+    });
+    closePreviewButtons.forEach((button) => button.addEventListener("click", closePreview));
+    closeExcelButtons.forEach((button) => button.addEventListener("click", closeExcel));
+    if (previewDownloadButton) {
+      previewDownloadButton.addEventListener("click", () =>
+        startDownload(state.previewFile, previewDownloadButton)
+      );
+    }
+    if (saveExcelButton) {
+      saveExcelButton.addEventListener("click", saveExcel);
+    }
 
     applyFilters();
   };
