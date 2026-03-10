@@ -1613,6 +1613,9 @@ class Admin_Controller
             $user_id = isset($change['user_id']) ? (int) $change['user_id'] : 0;
             $permission_id = isset($change['permission_id']) ? (int) $change['permission_id'] : 0;
             $level = isset($change['level']) ? sanitize_key((string) $change['level']) : '';
+            $expires_at = $this->normalize_datetime_local(
+                isset($change['expires_at']) ? sanitize_text_field((string) $change['expires_at']) : ''
+            );
 
             if ($user_id <= 0 || ! in_array($level, array('reader', 'editor', 'remove'), true)) {
                 continue;
@@ -1670,7 +1673,7 @@ class Admin_Controller
                         'read_state'       => $states['read_state'],
                         'download_state'   => $states['download_state'],
                         'edit_excel_state' => $states['edit_excel_state'],
-                        'expires_at'       => null,
+                        'expires_at'       => $expires_at,
                     )
                 );
             } else {
@@ -1684,7 +1687,7 @@ class Admin_Controller
                         'read_state'       => $states['read_state'],
                         'download_state'   => $states['download_state'],
                         'edit_excel_state' => $states['edit_excel_state'],
-                        'expires_at'       => null,
+                        'expires_at'       => $expires_at,
                     )
                 );
             }
@@ -1802,6 +1805,7 @@ class Admin_Controller
         $permission_id = isset($_POST['permission_id']) ? (int) $_POST['permission_id'] : 0;
         $folder_id = isset($_POST['folder_id']) ? (int) $_POST['folder_id'] : 0;
         $user_ids = $this->extract_user_ids_from_request();
+        $access_level = isset($_POST['access_level']) ? sanitize_key(wp_unslash($_POST['access_level'])) : '';
 
         $states = $this->extract_permission_states_from_request();
         $legacy_flags = $this->permission_states_to_legacy_flags($states);
@@ -1812,6 +1816,21 @@ class Admin_Controller
 
         if ($folder_id <= 0 || empty($user_ids)) {
             $this->redirect_with_notice('permission_invalid');
+        }
+
+        if ($access_level === 'remove') {
+            $has_error = false;
+            foreach ($user_ids as $user_id) {
+                if ($permission_id > 0) {
+                    $deleted = $this->permission_repository->delete_permission($permission_id);
+                } else {
+                    $deleted = $this->permission_repository->delete_permission_by_user_folder((int) $user_id, $folder_id);
+                }
+                if (! $deleted) {
+                    $has_error = true;
+                }
+            }
+            $this->redirect_with_notice($has_error ? 'permission_error' : 'permission_deleted');
         }
 
         // En modo edición, mantiene semántica 1 registro.
@@ -1864,6 +1883,7 @@ class Admin_Controller
         $permission_id = isset($_POST['permission_id']) ? (int) $_POST['permission_id'] : 0;
         $file_id = isset($_POST['file_id']) ? (int) $_POST['file_id'] : 0;
         $user_ids = $this->extract_user_ids_from_request();
+        $access_level = isset($_POST['access_level']) ? sanitize_key(wp_unslash($_POST['access_level'])) : '';
 
         $states = $this->extract_permission_states_from_request();
         $legacy_flags = $this->permission_states_to_legacy_flags($states);
@@ -1874,6 +1894,21 @@ class Admin_Controller
 
         if ($file_id <= 0 || empty($user_ids)) {
             $this->redirect_with_notice('file_permission_invalid');
+        }
+
+        if ($access_level === 'remove') {
+            $has_error = false;
+            foreach ($user_ids as $user_id) {
+                if ($permission_id > 0) {
+                    $deleted = $this->file_permission_repository->delete_permission($permission_id);
+                } else {
+                    $deleted = $this->file_permission_repository->delete_permission_by_user_file((int) $user_id, $file_id);
+                }
+                if (! $deleted) {
+                    $has_error = true;
+                }
+            }
+            $this->redirect_with_notice($has_error ? 'file_permission_error' : 'file_permission_deleted');
         }
 
         if ($permission_id > 0 && count($user_ids) > 1) {
@@ -2066,6 +2101,15 @@ class Admin_Controller
      */
     private function redirect_with_notice($notice_code, $extra = array(), $default_page = 'shared-docs-permissions')
     {
+        $return_url = isset($_REQUEST['return_url']) ? esc_url_raw(wp_unslash($_REQUEST['return_url'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+        if ($return_url !== '') {
+            $validated = wp_validate_redirect($return_url, '');
+            if ($validated !== '') {
+                wp_safe_redirect(add_query_arg(array('sd_notice' => $notice_code), $validated));
+                exit;
+            }
+        }
+
         $args = array_merge(
             array(
                 'page'      => $this->resolve_return_page($default_page),
@@ -3093,6 +3137,13 @@ class Admin_Controller
      */
     private function extract_permission_states_from_request()
     {
+        if (isset($_POST['access_level'])) {
+            $access_level = sanitize_key(wp_unslash($_POST['access_level']));
+            if (in_array($access_level, array('reader', 'editor'), true)) {
+                return $this->permission_states_for_access_level($access_level);
+            }
+        }
+
         $has_state_fields = isset($_POST['read_state']) || isset($_POST['download_state']) || isset($_POST['edit_excel_state']);
 
         if ($has_state_fields) {
@@ -3652,6 +3703,7 @@ class Admin_Controller
             $expires_label = empty($permission->expires_at)
                 ? __('Sin límite', 'shared-docs-manager')
                 : wp_date($date_format, strtotime((string) $permission->expires_at));
+            $expires_raw = $this->format_datetime_local(isset($permission->expires_at) ? (string) $permission->expires_at : '');
 
             $user_label = trim((string) $permission->display_name);
             if ($user_label === '') {
@@ -3688,6 +3740,7 @@ class Admin_Controller
                 'download_state_label'   => $this->permission_state_label(isset($permission->download_state) ? $permission->download_state : (! empty($permission->can_download) ? 1 : -1)),
                 'edit_excel_state_label' => $this->permission_state_label(isset($permission->edit_excel_state) ? $permission->edit_excel_state : (! empty($permission->can_edit_excel) ? 1 : -1)),
                 'expires_at'     => $expires_label,
+                'expires_at_raw' => $expires_raw,
                 'edit_url'       => $edit_url,
                 'revoke_url'     => $revoke_url,
             );
@@ -3742,6 +3795,7 @@ class Admin_Controller
             $expires_label = empty($permission->expires_at)
                 ? __('Sin límite', 'shared-docs-manager')
                 : wp_date($date_format, strtotime((string) $permission->expires_at));
+            $expires_raw = $this->format_datetime_local(isset($permission->expires_at) ? (string) $permission->expires_at : '');
 
             $user_label = trim((string) $permission->display_name);
             if ($user_label === '') {
@@ -3778,6 +3832,7 @@ class Admin_Controller
                 'download_state_label'   => $this->permission_state_label(isset($permission->download_state) ? $permission->download_state : (! empty($permission->can_download) ? 1 : -1)),
                 'edit_excel_state_label' => $this->permission_state_label(isset($permission->edit_excel_state) ? $permission->edit_excel_state : (! empty($permission->can_edit_excel) ? 1 : -1)),
                 'expires_at'     => $expires_label,
+                'expires_at_raw' => $expires_raw,
                 'edit_url'       => $edit_url,
                 'revoke_url'     => $revoke_url,
             );
@@ -3876,6 +3931,7 @@ class Admin_Controller
                     'download_state_label'   => $can_download ? __('Heredado (Permitir)', 'shared-docs-manager') : __('Heredado (Denegar)', 'shared-docs-manager'),
                     'edit_excel_state_label' => $can_edit_excel ? __('Heredado (Permitir)', 'shared-docs-manager') : __('Heredado (Denegar)', 'shared-docs-manager'),
                     'expires_at'     => $source_row ? $source_row['expires_at'] : __('Sin límite', 'shared-docs-manager'),
+                    'expires_at_raw' => $source_row && isset($source_row['expires_at_raw']) ? $source_row['expires_at_raw'] : '',
                     'edit_url'       => $source_row ? $source_row['edit_url'] : '',
                     'revoke_url'     => $source_row ? $source_row['revoke_url'] : '',
                     'inherited'      => true,

@@ -626,12 +626,20 @@
         tr.appendChild(editExcelCell);
 
         const expiresCell = document.createElement("td");
-        expiresCell.textContent = row.expires_at || "";
+        const expiresInput = document.createElement("input");
+        expiresInput.type = "datetime-local";
+        expiresInput.setAttribute("data-access-expires-input", "1");
+        expiresInput.value = row && row.expires_at_raw ? String(row.expires_at_raw) : "";
+        expiresCell.appendChild(expiresInput);
         tr.appendChild(expiresCell);
 
         const actionsCell = document.createElement("td");
         const levelSelect = buildAccessLevelSelect(resolveAccessLevel(row));
         actionsCell.appendChild(levelSelect);
+        const levelHint = document.createElement("div");
+        levelHint.className = "description";
+        levelHint.textContent = "Lector: lectura y descarga";
+        actionsCell.appendChild(levelHint);
 
         tr.appendChild(actionsCell);
         tableBody.appendChild(tr);
@@ -739,7 +747,9 @@
           const userId = Number(row.getAttribute("data-access-user-id") || 0);
           const permissionId = Number(row.getAttribute("data-access-permission-id") || 0);
           const select = row.querySelector("[data-access-level-select]");
+          const expiresInput = row.querySelector("[data-access-expires-input]");
           const level = select ? select.value : "";
+          const expiresAt = expiresInput ? expiresInput.value || "" : "";
           if (!userId || !level) {
             return;
           }
@@ -747,6 +757,7 @@
             user_id: userId,
             permission_id: permissionId,
             level,
+            expires_at: expiresAt,
           });
         });
         savePayloadInput.value = JSON.stringify(payload);
@@ -816,11 +827,19 @@
         editCell.textContent = permissionAllows(row, "edit_excel_state", !!row.can_edit_excel) ? "✔" : "";
         tr.appendChild(editCell);
         const expiresCell = document.createElement("td");
-        expiresCell.textContent = row.expires_at || "";
+        const expiresInput = document.createElement("input");
+        expiresInput.type = "datetime-local";
+        expiresInput.setAttribute("data-access-expires-input", "1");
+        expiresInput.value = row && row.expires_at_raw ? String(row.expires_at_raw) : "";
+        expiresCell.appendChild(expiresInput);
         tr.appendChild(expiresCell);
         const actionsCell = document.createElement("td");
         const levelSelect = buildAccessLevelSelect(resolveAccessLevel(row));
         actionsCell.appendChild(levelSelect);
+        const levelHint = document.createElement("div");
+        levelHint.className = "description";
+        levelHint.textContent = "Lector: lectura y descarga";
+        actionsCell.appendChild(levelHint);
 
         tr.appendChild(actionsCell);
         tableBody.appendChild(tr);
@@ -889,7 +908,9 @@
           const userId = Number(row.getAttribute("data-access-user-id") || 0);
           const permissionId = Number(row.getAttribute("data-access-permission-id") || 0);
           const select = row.querySelector("[data-access-level-select]");
+          const expiresInput = row.querySelector("[data-access-expires-input]");
           const level = select ? select.value : "";
+          const expiresAt = expiresInput ? expiresInput.value || "" : "";
           if (!userId || !level) {
             return;
           }
@@ -897,6 +918,7 @@
             user_id: userId,
             permission_id: permissionId,
             level,
+            expires_at: expiresAt,
           });
         });
         savePayloadInput.value = JSON.stringify(payload);

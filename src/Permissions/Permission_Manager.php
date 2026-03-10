@@ -458,6 +458,13 @@ class Permission_Manager
         $inherited_file_ids = array_values(array_diff(array_map('intval', $effective_file_ids), $explicit_file_ids));
         $is_manager = $this->is_manager_user($user_id);
         $can_edit_links = $this->is_manager_user(get_current_user_id());
+        $current_url = '';
+        if (isset($_SERVER['HTTP_HOST'], $_SERVER['REQUEST_URI'])) {
+            $scheme = is_ssl() ? 'https://' : 'http://';
+            $host = sanitize_text_field(wp_unslash($_SERVER['HTTP_HOST']));
+            $request_uri = sanitize_text_field(wp_unslash($_SERVER['REQUEST_URI']));
+            $current_url = $scheme . $host . $request_uri;
+        }
 
         ob_start();
         ?>
@@ -484,7 +491,7 @@ class Permission_Manager
                             <th><?php esc_html_e('Descarga', 'shared-docs-manager'); ?></th>
                             <th><?php esc_html_e('Edición Excel', 'shared-docs-manager'); ?></th>
                             <th><?php esc_html_e('Expira', 'shared-docs-manager'); ?></th>
-                            <th><?php esc_html_e('Editar', 'shared-docs-manager'); ?></th>
+                            <th><?php esc_html_e('Gestión', 'shared-docs-manager'); ?></th>
                         </tr>
                         </thead>
                         <tbody>
@@ -499,15 +506,6 @@ class Permission_Manager
                                     get_option('date_format') . ' ' . get_option('time_format'),
                                     strtotime($permission->expires_at)
                                 );
-                            $edit_url = add_query_arg(
-                                array(
-                                    'page'          => 'shared-docs-permissions',
-                                    'action'        => 'edit_permission',
-                                    'permission_id' => (int) $permission->id,
-                                    'user_id'       => $user_id,
-                                ),
-                                admin_url('admin.php')
-                            );
                             ?>
                             <tr>
                                 <td>
@@ -516,13 +514,35 @@ class Permission_Manager
                                         <span class="shared-docs-badge shared-docs-badge-danger"><?php esc_html_e('Expirado', 'shared-docs-manager'); ?></span>
                                     <?php endif; ?>
                                 </td>
-                                <td><?php echo ! empty($permission->can_read) ? '✔' : '—'; ?></td>
-                                <td><?php echo ! empty($permission->can_download) ? '✔' : '—'; ?></td>
-                                <td><?php echo ! empty($permission->can_edit_excel) ? '✔' : '—'; ?></td>
-                                <td><?php echo esc_html($expires_label); ?></td>
+                                <td><?php echo ! empty($permission->can_read) ? '✔' : ''; ?></td>
+                                <td><?php echo ! empty($permission->can_download) ? '✔' : ''; ?></td>
+                                <td><?php echo ! empty($permission->can_edit_excel) ? '✔' : ''; ?></td>
                                 <td>
                                     <?php if ($can_edit_links) : ?>
-                                        <a href="<?php echo esc_url($edit_url); ?>"><?php esc_html_e('Editar permisos', 'shared-docs-manager'); ?></a>
+                                        <input form="<?php echo esc_attr('shared-folder-perm-' . (int) $permission->id); ?>" type="datetime-local" name="expires_at" value="<?php echo esc_attr(empty($permission->expires_at) ? '' : wp_date('Y-m-d\TH:i', strtotime((string) $permission->expires_at))); ?>" />
+                                    <?php else : ?>
+                                        <?php echo esc_html($expires_label); ?>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php if ($can_edit_links) : ?>
+                                        <form id="<?php echo esc_attr('shared-folder-perm-' . (int) $permission->id); ?>" method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                                            <input type="hidden" name="action" value="shared_docs_save_permission" />
+                                            <input type="hidden" name="return_page" value="shared-docs-permissions" />
+                                            <?php if ($current_url !== '') : ?>
+                                                <input type="hidden" name="return_url" value="<?php echo esc_url($current_url); ?>" />
+                                            <?php endif; ?>
+                                            <input type="hidden" name="permission_id" value="<?php echo (int) $permission->id; ?>" />
+                                            <input type="hidden" name="folder_id" value="<?php echo (int) $permission->folder_id; ?>" />
+                                            <input type="hidden" name="user_ids[]" value="<?php echo (int) $user_id; ?>" />
+                                            <?php wp_nonce_field('shared_docs_save_permission'); ?>
+                                            <select name="access_level">
+                                                <option value="reader" <?php selected(! empty($permission->can_edit_excel), false); ?>><?php esc_html_e('Lector', 'shared-docs-manager'); ?></option>
+                                                <option value="editor" <?php selected(! empty($permission->can_edit_excel), true); ?>><?php esc_html_e('Editor', 'shared-docs-manager'); ?></option>
+                                                <option value="remove"><?php esc_html_e('Quitar acceso', 'shared-docs-manager'); ?></option>
+                                            </select>
+                                            <button type="submit" class="button button-small"><?php esc_html_e('Guardar', 'shared-docs-manager'); ?></button>
+                                        </form>
                                     <?php else : ?>
                                         —
                                     <?php endif; ?>
@@ -546,7 +566,7 @@ class Permission_Manager
                             <th><?php esc_html_e('Descarga', 'shared-docs-manager'); ?></th>
                             <th><?php esc_html_e('Edición Excel', 'shared-docs-manager'); ?></th>
                             <th><?php esc_html_e('Expira', 'shared-docs-manager'); ?></th>
-                            <th><?php esc_html_e('Editar', 'shared-docs-manager'); ?></th>
+                            <th><?php esc_html_e('Gestión', 'shared-docs-manager'); ?></th>
                         </tr>
                         </thead>
                         <tbody>
@@ -564,15 +584,6 @@ class Permission_Manager
                                     get_option('date_format') . ' ' . get_option('time_format'),
                                     strtotime($permission->expires_at)
                                 );
-                            $edit_url = add_query_arg(
-                                array(
-                                    'page'          => 'shared-docs-permissions',
-                                    'action'        => 'edit_file_permission',
-                                    'permission_id' => (int) $permission->id,
-                                    'user_id'       => $user_id,
-                                ),
-                                admin_url('admin.php')
-                            );
                             ?>
                             <tr>
                                 <td>
@@ -582,13 +593,35 @@ class Permission_Manager
                                     <?php endif; ?>
                                 </td>
                                 <td><?php echo esc_html($folder_title); ?></td>
-                                <td><?php echo ! empty($permission->can_read) ? '✔' : '—'; ?></td>
-                                <td><?php echo ! empty($permission->can_download) ? '✔' : '—'; ?></td>
-                                <td><?php echo ! empty($permission->can_edit_excel) ? '✔' : '—'; ?></td>
-                                <td><?php echo esc_html($expires_label); ?></td>
+                                <td><?php echo ! empty($permission->can_read) ? '✔' : ''; ?></td>
+                                <td><?php echo ! empty($permission->can_download) ? '✔' : ''; ?></td>
+                                <td><?php echo ! empty($permission->can_edit_excel) ? '✔' : ''; ?></td>
                                 <td>
                                     <?php if ($can_edit_links) : ?>
-                                        <a href="<?php echo esc_url($edit_url); ?>"><?php esc_html_e('Editar permisos', 'shared-docs-manager'); ?></a>
+                                        <input form="<?php echo esc_attr('shared-file-perm-' . (int) $permission->id); ?>" type="datetime-local" name="expires_at" value="<?php echo esc_attr(empty($permission->expires_at) ? '' : wp_date('Y-m-d\TH:i', strtotime((string) $permission->expires_at))); ?>" />
+                                    <?php else : ?>
+                                        <?php echo esc_html($expires_label); ?>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php if ($can_edit_links) : ?>
+                                        <form id="<?php echo esc_attr('shared-file-perm-' . (int) $permission->id); ?>" method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                                            <input type="hidden" name="action" value="shared_docs_save_file_permission" />
+                                            <input type="hidden" name="return_page" value="shared-docs-permissions" />
+                                            <?php if ($current_url !== '') : ?>
+                                                <input type="hidden" name="return_url" value="<?php echo esc_url($current_url); ?>" />
+                                            <?php endif; ?>
+                                            <input type="hidden" name="permission_id" value="<?php echo (int) $permission->id; ?>" />
+                                            <input type="hidden" name="file_id" value="<?php echo (int) $permission->file_id; ?>" />
+                                            <input type="hidden" name="user_ids[]" value="<?php echo (int) $user_id; ?>" />
+                                            <?php wp_nonce_field('shared_docs_save_file_permission'); ?>
+                                            <select name="access_level">
+                                                <option value="reader" <?php selected(! empty($permission->can_edit_excel), false); ?>><?php esc_html_e('Lector', 'shared-docs-manager'); ?></option>
+                                                <option value="editor" <?php selected(! empty($permission->can_edit_excel), true); ?>><?php esc_html_e('Editor', 'shared-docs-manager'); ?></option>
+                                                <option value="remove"><?php esc_html_e('Quitar acceso', 'shared-docs-manager'); ?></option>
+                                            </select>
+                                            <button type="submit" class="button button-small"><?php esc_html_e('Guardar', 'shared-docs-manager'); ?></button>
+                                        </form>
                                     <?php else : ?>
                                         —
                                     <?php endif; ?>
@@ -629,9 +662,9 @@ class Permission_Manager
                             <tr>
                                 <td><?php echo esc_html($file_title); ?></td>
                                 <td><?php echo esc_html($folder_title); ?></td>
-                                <td><?php esc_html_e('Permitir (heredado)', 'shared-docs-manager'); ?></td>
-                                <td><?php echo $can_download_file ? esc_html__('Permitir (heredado)', 'shared-docs-manager') : esc_html__('Denegar (heredado)', 'shared-docs-manager'); ?></td>
-                                <td><?php echo $can_edit_excel_file ? esc_html__('Permitir (heredado)', 'shared-docs-manager') : esc_html__('Denegar (heredado)', 'shared-docs-manager'); ?></td>
+                                <td><?php echo '✔'; ?></td>
+                                <td><?php echo $can_download_file ? '✔' : ''; ?></td>
+                                <td><?php echo $can_edit_excel_file ? '✔' : ''; ?></td>
                                 <td><?php esc_html_e('Permisos de carpeta', 'shared-docs-manager'); ?></td>
                             </tr>
                         <?php endforeach; ?>

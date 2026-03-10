@@ -343,6 +343,10 @@ button.is-loading,
   min-width: 230px;
 }
 
+.shared-docs-access-current td [data-access-expires-input] {
+  min-width: 180px;
+}
+
 .shared-docs-access-add {
   margin-top: 12px;
 }
